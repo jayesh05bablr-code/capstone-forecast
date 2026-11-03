@@ -1,1 +1,43 @@
-keep-awake.yml
+name: Keep dashboard awake
+
+on:
+  schedule:
+    - cron: "20 3 * * 1-5"
+    - cron: "35 3 * * 1-5"
+    - cron: "25 10 * * 1-5"
+    - cron: "50 10 * * 1-5"
+    - cron: "0 */4 * * *"
+  workflow_dispatch: {}
+
+env:
+  APP_URL: https://pri-capstone.streamlit.app
+
+jobs:
+  visit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install playwright==1.48.0 && python -m playwright install --with-deps chromium
+      - name: Open the app (and wake it if asleep)
+        shell: python
+        run: |
+          import os
+          from playwright.sync_api import sync_playwright
+          with sync_playwright() as p:
+              page = p.chromium.launch().new_page()
+              page.goto(os.environ["APP_URL"], timeout=120_000)
+              wake = page.get_by_role("button", name="Yes, get this app back up!")
+              if wake.count():
+                  print("App was asleep: waking it")
+                  wake.click()
+              page.wait_for_timeout(5_000)
+              frame = page.frame_locator("iframe").first if page.locator("iframe").count() else page
+              try:
+                  frame.get_by_text("India market opening forecast").first.wait_for(timeout=600_000)
+                  print("Dashboard is up")
+              except Exception as exc:
+                  print(f"Dashboard did not finish drawing: {exc}")
+              page.wait_for_timeout(60_000)
