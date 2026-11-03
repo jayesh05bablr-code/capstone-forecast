@@ -1,0 +1,20 @@
+data/raw/
+data/processed/
+data/us/
+data/fx/
+data/SYNTHETIC_DATA
+models/
+.env
+__pycache__/
+.pytest_cache/
+data/company_profiles/
+data/intraday/
+
+# local data written by the app
+data/*.csv
+!data/fundamentals_template.csv
+!data/sector_links.csv
+!data/stock_map.csv
+
+# Streamlit Cloud keys (paste them in the Secrets box instead)
+.streamlit/secrets.toml

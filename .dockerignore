@@ -1,0 +1,9 @@
+.git
+.venv
+.env
+data/raw
+data/us
+data/fx
+data/processed
+models
+__pycache__
