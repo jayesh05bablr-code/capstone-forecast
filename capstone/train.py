@@ -50,17 +50,29 @@ def usable_features(df: pd.DataFrame, candidates: list[str] | None = None) -> li
     return [f for f in (candidates or features.FEATURES) if df[f].nunique(dropna=True) >= 2]
 
 
-def walk_forward(df: pd.DataFrame, all_cols: list[str]) -> pd.DataFrame:
+def folds(df: pd.DataFrame, n_folds: int = N_FOLDS, min_train: int = MIN_TRAIN_DAYS):
+    """Expanding-window walk-forward splits shared by every model in the project.
+
+    Yields (fold number, training rows, test rows). Training rows are dated strictly before the
+    fold's first test date. The last fold runs to the final date in the data.
+    """
     dates = np.sort(df["date"].unique())
-    test_days = (len(dates) - MIN_TRAIN_DAYS) // N_FOLDS
+    test_days = (len(dates) - min_train) // n_folds
     if test_days < 20:
-        raise ValueError(f"Only {len(dates)} trading days; need at least {MIN_TRAIN_DAYS + 20 * N_FOLDS}.")
+        raise ValueError(f"Only {len(dates)} trading days; need at least {min_train + 20 * n_folds}.")
+    for k in range(n_folds):
+        split = dates[min_train + k * test_days]
+        if k == n_folds - 1:
+            test = df[df["date"] >= split]
+        else:
+            test = df[(df["date"] >= split) & (df["date"] < dates[min_train + (k + 1) * test_days])]
+        yield k + 1, df[df["date"] < split], test
+
+
+def walk_forward(df: pd.DataFrame, all_cols: list[str]) -> pd.DataFrame:
     rows = []
-    for k in range(N_FOLDS):
-        split = dates[MIN_TRAIN_DAYS + k * test_days]
-        stop = dates[min(MIN_TRAIN_DAYS + (k + 1) * test_days, len(dates) - 1)]
-        train = df[df["date"] < split]
-        test = df[(df["date"] >= split) & (df["date"] < stop)]
+    for k, train, test in folds(df):
+        split = test["date"].min()
         cols = usable_features(train, all_cols)
         model = make_model().fit(train[cols], train["target_gap"])
         candidates = {
@@ -73,7 +85,7 @@ def walk_forward(df: pd.DataFrame, all_cols: list[str]) -> pd.DataFrame:
             no_overnight = make_model().fit(train[base_cols], train["target_gap"])
             candidates["model_without_overnight"] = no_overnight.predict(test[base_cols])
         for name, pred in candidates.items():
-            rows.append({"fold": k + 1, "test_start": str(split)[:10], "method": name, **scores(test, pred)})
+            rows.append({"fold": k, "test_start": str(split)[:10], "method": name, **scores(test, pred)})
     return pd.DataFrame(rows)
 
 
@@ -102,6 +114,11 @@ def main() -> None:
     report.to_csv(MODELS / "walk_forward_report.csv", index=False)
     (MODELS / "band.json").write_text(json.dumps(band, indent=2))
     print(f"\nSaved model to {MODELS / 'gap_model.joblib'}")
+
+    # Four-way comparison (naive, historical average, Linear Regression, this model) on the same
+    # test rows, with out-of-sample forecasts saved for the accuracy dashboard and the backtests.
+    from . import model_eval
+    model_eval.print_report(model_eval.evaluate(df, cols))
 
 
 if __name__ == "__main__":
