@@ -144,3 +144,11 @@ New modules: `metrics.py`, `model_eval.py`, `costs.py`, `weekly.py`, `weekly_mod
 - Say where the reviewer saw the exposed key, if not one of the three places above.
 - Create a Supabase project and provide `SUPABASE_URL` and a key through Streamlit Secrets / `.env` (never in chat), then run `migrations/001_init.sql` in the Supabase SQL editor.
 - Push: this session cannot write to GitHub. Either connect GitHub to Claude so a branch can be pushed, or upload the delivered files as before.
+
+## 10. Status after the upgrade (added 17 Nov 2026)
+
+Every "Missing" or "Partial" row in section 3 is now implemented; see README.md for the module list and
+MODEL_EVALUATION.md / BACKTESTING_METHODOLOGY.md for methods and measured results. Bugs B1, B2, B4 (coverage now
+reported), B5, B6 and B10 are fixed; B3 is handled in the weekly analysis (exclusions and back-adjusted weekly
+features) and documented for the daily model; B7, B8, B9 and B11 are documented. Outstanding items need Pri:
+Twelve Data key rotation, Supabase project credentials, and GitHub access (or a manual upload) to publish.
