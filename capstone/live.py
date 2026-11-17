@@ -39,7 +39,7 @@ def _from_yfinance(symbols: list[str]) -> dict[str, pd.DataFrame]:
     import yfinance as yf
 
     tickers = [f"{s}.NS" for s in symbols]
-    raw = yf.download(tickers, period="2d", interval="1m", group_by="ticker", auto_adjust=False,
+    raw = yf.download(tickers, period="5d", interval="1m", group_by="ticker", auto_adjust=False,
                       progress=False, threads=True, prepost=False)
     out = {}
     for sym, tk in zip(symbols, tickers):

@@ -23,19 +23,6 @@ README = [
     ("Company_profiles", "Uploaded company details (founded, HQ, employees...)."),
     ("Tracxn_profiles", "Fields extracted from uploaded Tracxn PDFs."),
     ("Stock_map", "NSE symbol -> Indian sector and US ADR."),
-    ("Model_comparison", "Naive, historical average, Linear Regression and HistGradientBoosting on identical "
-                         "walk-forward test days: MAE, RMSE, bias (% points), directional accuracy."),
-    ("Model_by_stock", "The same metrics per stock."),
-    ("Model_significance", "Diebold-Mariano tests of the absolute-error differences."),
-    ("Interval_coverage", "Share of actual gaps inside the 10-90% band, per test period."),
-    ("OOS_predictions", "Every out-of-sample forecast (model, stock, day): actual, forecast, error, band."),
-    ("Weekly_returns", "Each stock-week: entry/exit session, sessions, return, valid flag and exclusion reason."),
-    ("Weekly_model", "Weekly return forecasters compared on identical walk-forward weeks."),
-    ("Backtest_summary", "Unfiltered vs cost-aware strategy vs hold-all, default assumptions."),
-    ("Backtest_trades_A", "Trades of the unfiltered strategy."),
-    ("Backtest_trades_B", "Trades of the cost-aware strategy."),
-    ("Backtest_equity", "Weekly equity of each strategy."),
-    ("MonteCarlo_percentiles", "5th-95th percentile outcomes of 5,000 simulations of the cost-aware strategy."),
     ("Sector_links", "Indian sector -> US sector ETF and rupee exposure."),
 ]
 
@@ -65,25 +52,10 @@ def sheets() -> dict[str, pd.DataFrame]:
                        ("Investors", DATA / "investors.csv"),
                        ("Company_profiles", DATA / "company_profiles.csv"),
                        ("Tracxn_profiles", DATA / "tracxn_profiles.csv"),
-                       ("Stock_map", STOCK_MAP_FILE), ("Sector_links", SECTOR_LINKS_FILE),
-                       ("Model_comparison", MODELS / "model_comparison.csv"),
-                       ("Model_by_stock", MODELS / "model_comparison_by_stock.csv"),
-                       ("Model_significance", MODELS / "model_significance.csv"),
-                       ("Interval_coverage", MODELS / "interval_coverage.csv"),
-                       ("OOS_predictions", MODELS / "oos_predictions.csv"),
-                       ("Weekly_returns", MODELS / "weekly_returns.csv"),
-                       ("Weekly_model", MODELS / "weekly_model_comparison.csv"),
-                       ("Backtest_summary", MODELS / "backtest_summary.csv"),
-                       ("Backtest_trades_A", MODELS / "backtest_trades_A.csv"),
-                       ("Backtest_trades_B", MODELS / "backtest_trades_B.csv"),
-                       ("MonteCarlo_percentiles", MODELS / "montecarlo_percentiles.csv")]:
+                       ("Stock_map", STOCK_MAP_FILE), ("Sector_links", SECTOR_LINKS_FILE)]:
         df = _read(path)
         if df is not None:
             out[name] = df
-    eq = [_read(MODELS / f"backtest_weeks_{k}.csv") for k in ("A", "B", "H")]
-    if all(e is not None for e in eq):
-        out["Backtest_equity"] = pd.DataFrame({"week_start": eq[0]["week_start"], "equity_A_unfiltered": eq[0]["equity"],
-                                               "equity_B_cost_aware": eq[1]["equity"], "equity_hold_all": eq[2]["equity"]})
     return out
 
 

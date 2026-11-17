@@ -10,7 +10,6 @@ import os
 import subprocess
 import sys
 
-from .env import redact
 from .paths import DATA, FUNDAMENTALS_FILE, MODELS, PROCESSED, ROOT
 
 MODEL_FILE = MODELS / "gap_model.joblib"
@@ -45,7 +44,6 @@ def _run(module: str) -> tuple[bool, str]:
                             stderr=subprocess.STDOUT, text=True, encoding="utf-8", errors="replace")
     lines = []
     for line in proc.stdout:
-        line = redact(line)  # a key must never reach the terminal or the dashboard log
         _echo(line)
         lines.append(line)
     return proc.wait() == 0, "".join(lines)

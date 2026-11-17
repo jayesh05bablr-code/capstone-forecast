@@ -13,8 +13,7 @@ from . import twelvedata_client as td
 from .env import ENV_FILE
 from .http_json import ApiError
 
-KEYS = ["TWELVEDATA_API_KEY", "EXCHANGERATE_API_KEY", "TEJ_API_KEY", "ALPHAVANTAGE_API_KEY",
-        "SUPABASE_URL", "SUPABASE_KEY"]
+KEYS = ["TWELVEDATA_API_KEY", "EXCHANGERATE_API_KEY", "TEJ_API_KEY", "ALPHAVANTAGE_API_KEY"]
 
 
 def main() -> None:

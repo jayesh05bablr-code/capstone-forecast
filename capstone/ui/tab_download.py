@@ -10,16 +10,12 @@ from capstone import export
 from capstone.ui.common import XLSX_MIME
 
 
-@st.cache_data(ttl=600, show_spinner=False)
-def _sizes() -> pd.DataFrame:
-    return pd.DataFrame([(n, len(d), len(d.columns)) for n, d in export.sheets().items()],
-                        columns=["Sheet", "Rows", "Columns"])
-
-
 def render() -> None:
     st.markdown("Everything behind the model in one Excel workbook, one sheet per dataset, with a "
                 "README sheet explaining each one. Use it for your own EDA.")
-    st.dataframe(_sizes(), hide_index=True)
+    parts = export.sheets()
+    st.dataframe(pd.DataFrame([(n, len(d), len(d.columns)) for n, d in parts.items()],
+                              columns=["Sheet", "Rows", "Columns"]), hide_index=True)
     if st.button("Prepare Excel file"):
         with st.spinner("Building the workbook..."):
             st.session_state["xlsx"] = export.workbook()

@@ -1,9 +1,0 @@
-symbol,ex_date,action,price_factor,note
-HDFCBANK,2019-09-19,split 2:1,0.5,Open/previous close = 0.50 in the price file
-HDFCBANK,2025-08-26,bonus 1:1,0.5,Open/previous close = 0.50 in the price file
-INFY,2015-06-15,bonus 1:1,0.5,Open/previous close = 0.49 in the price file
-INFY,2018-09-04,bonus 1:1,0.5,Open/previous close = 0.50 in the price file
-RELIANCE,2017-09-07,bonus 1:1,0.5,Open/previous close = 0.50 in the price file
-RELIANCE,2024-10-28,bonus 1:1,0.5,Open/previous close = 0.50 in the price file
-TCS,2018-05-31,bonus 1:1,0.5,Open/previous close = 0.49 in the price file
-ICICIBANK,2017-06-20,bonus 1:10,0.909,Open/previous close = 0.907; below the 20% automatic filter so listed here

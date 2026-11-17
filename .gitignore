@@ -5,10 +5,6 @@ data/fx/
 data/SYNTHETIC_DATA
 models/
 .env
-.env.*
-!.env.example
-*.pem
-*.key
 __pycache__/
 .pytest_cache/
 data/company_profiles/
@@ -19,7 +15,6 @@ data/*.csv
 !data/fundamentals_template.csv
 !data/sector_links.csv
 !data/stock_map.csv
-!data/corporate_actions.csv
 
 # Streamlit Cloud keys (paste them in the Secrets box instead)
 .streamlit/secrets.toml

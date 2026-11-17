@@ -8,114 +8,7 @@ app_port: 7860
 pinned: false
 ---
 
-# NSE morning forecast and trading decision support
-
-A Streamlit dashboard for investors and analysts who want a structured, data-driven view of selected NSE stocks
-before the 09:15 IST open: each stock's expected opening gap with a 10th-90th percentile range and its drivers,
-the model's measured accuracy against simple baselines, a weekly trading analysis net of realistic costs,
-unfiltered vs cost-aware backtests, and a Monte Carlo risk view. **It is a decision-support tool, not a
-profit-generating system or investment advice.**
-
-Live app: https://pri-capstone.streamlit.app
-
-## Executive summary
-
-**Business problem.** Before 09:15 IST an investor has to digest what happened overnight (the US close,
-the rupee, ADRs) and how each stock traded the day before, and decide whether to act at the open. Doing this by
-hand for every stock each morning is slow and inconsistent.
-
-**Target user and morning decision.** An investor or market analyst following selected NSE large caps who wants a
-structured, data-driven view at 08:45 IST: which stocks are likely to open higher or lower, by how much, how
-confident to be, and whether a short-term trade is worth its costs.
-
-**Proposed solution.** A Streamlit dashboard that refreshes itself after the US close and after the NSE close:
-it forecasts each stock's opening gap with a 10th-90th percentile range and explains the drivers, tracks its own
-historical accuracy against simple baselines, analyses weekly trading opportunities net of realistic costs,
-backtests a weekly signal, stress-tests it with Monte Carlo simulation, and flags disagreements with company
-fundamentals.
-
-**Data sources.** NSE daily OHLCV (TejHQ API, Yahoo Finance fallback); US S&P 500, Nasdaq 100, 11 sector ETFs and
-Indian ADRs, and USD/INR history (Twelve Data, Alpha Vantage fallback); live USD/INR (exchangerate.dev);
-quarterly results and shareholding (Tracxn exports / company data workbooks). Optional Supabase stores the outputs.
-
-**Model architecture.** Features known at the close plus the overnight US/rupee window up to the next open;
-target = next open / close - 1. HistGradientBoosting (existing model) compared with Linear Regression, a naive
-"open = last close" baseline and a leakage-free historical-average baseline on identical expanding walk-forward
-folds. Intervals from earlier folds' out-of-sample residuals. Driver attribution by what-if neutralisation.
-
-**Model performance vs naive baseline** (13,438 stock-days, 2016-01-05 to 2026-11-12). HistGradientBoosting: MAE 0.486 % points, directional accuracy 66.2%. Naive baseline: MAE 0.560, directional accuracy 2.8% (a zero forecast is only right on a zero gap). Historical average: MAE 0.554, 56.9%. The model cuts the naive error by 13.3%. Linear Regression: MAE 0.488, 65.9%; HistGradientBoosting vs Linear Regression: no significant difference (|t| <= 1.96), so the simpler model is about as good on average. The 10-90% interval covered 70-87% of actual gaps per test period (target 80%).
-
-**Weekly trading analysis.** 3,094 valid stock-weeks (first-session open to last-session close, holiday weeks kept, bonus/split weeks excluded). The weekly forecast has no measurable edge: MAE 2.61 % points vs 2.52 for a zero forecast, directional accuracy 49.3%. With default costs (0.36% per round trip for a ₹200,000 delivery position) on ₹1,000,000: unfiltered strategy 1467 trades, net -50.3%, max drawdown -54.2%; cost-aware strategy 534 trades, net -21.3%, max drawdown -28.1%; holding every stock every week -58.0% (gross P&L ₹790,947, costs ₹1,370,550). The cost-aware filter traded 36% as often as the unfiltered strategy; weekly round trips in these stocks did not cover their costs. Monte Carlo (5,000 block-bootstrap paths of the cost-aware strategy): 84% probability of ending below the starting capital; median return -20.4%, 5th-95th percentile -47% to +16%.
-
-**Business value.** One screen replaces a manual overnight scan: a consistent, explainable opening
-view with an honest error range, evidence on when the model beats simple rules, and a cost-aware check that
-stops the user from chasing short-term trades whose expected edge is smaller than their costs.
-
-**Limitations.** Decision support only, not a guaranteed profit system or investment advice. Earnings, corporate
-announcements, geopolitical shocks, liquidity and regime changes can break any forecast; historical and simulated
-results do not guarantee future performance; the five stocks are survivors (survivorship bias); cost rates are
-assumptions to verify with a broker.
-
-## Capstone documents
-
-| Document | Contents |
-| --- | --- |
-| [EXECUTIVE_SUMMARY.md](EXECUTIVE_SUMMARY.md) | One-page business case with measured results |
-| [IMPLEMENTATION_AUDIT.md](IMPLEMENTATION_AUDIT.md) | Audit before the upgrade: architecture, gaps, bugs, security review |
-| [MODEL_EVALUATION.md](MODEL_EVALUATION.md) | Naive, historical average, Linear Regression, HistGradientBoosting on identical walk-forward days |
-| [BACKTESTING_METHODOLOGY.md](BACKTESTING_METHODOLOGY.md) | Weekly delta, NSE calendar and holidays, cost model, weekly model, backtests, Monte Carlo |
-| [DATABASE_SCHEMA.sql](DATABASE_SCHEMA.sql) | Supabase/PostgreSQL schema (same as `migrations/001_init.sql`) |
-| [DEPLOYMENT_GUIDE.md](DEPLOYMENT_GUIDE.md) | Local setup on Windows, secrets, Streamlit Cloud, Supabase, key rotation, git history |
-| [DEMO_SCRIPT.md](DEMO_SCRIPT.md) | Three-minute demo |
-
-## Dashboard tabs
-
-| Tab | What it shows |
-| --- | --- |
-| Morning forecast | Stock selector, predicted gap and opening price, 10th/90th percentile, direction, drivers, model, last update |
-| Model accuracy | MAE, RMSE, bias, directional accuracy; baselines vs Linear Regression vs HistGradientBoosting; significance tests; predicted vs actual; scatter; daily error; rolling MAE and accuracy; stock-wise tables; interval coverage. Filters: stock, dates, models |
-| Weekly analysis | Weekly delta chart per stock with the round-trip cost line (green above, grey below), tradable weeks %, weekly statistics, cost breakdown |
-| Backtesting | Unfiltered vs cost-aware strategy vs hold-all: trades, win rate, gross/net P&L, costs, return, drawdown, Sharpe, equity and drawdown curves, trade lists |
-| Monte Carlo | 5,000 block-bootstrap paths: ending capital, drawdown and return distributions, probability of loss, percentiles, backtest vs simulation |
-| Business insights | Forecast direction vs fundamental trend with disagreement flags, executive summary, limitations |
-| More tools | The earlier tabs: Live, US sectors and India, Rupee, Invest planner, Intraday scalping, Company profile, Upload company data, Download data (Excel) |
-
-Trading assumptions (capital, allocation, number of stocks, brokerage, STT, stamp duty, exchange and DP charges,
-spread, slippage, cost-filter multiple) are in the sidebar and drive the last three analysis tabs together.
-
-## Quick start
-
-```powershell
-py -3 -m venv .venv; .\.venv\Scripts\Activate.ps1      # Mac/Linux: python3 -m venv .venv && source .venv/bin/activate
-python -m pip install -r requirements.txt
-copy .env.example .env                                  # then paste your keys into .env
-python -m capstone.train                                # evaluation, weekly analysis, backtests, Monte Carlo
-python -m capstone.predict
-python -m pytest -q tests
-streamlit run app.py
-```
-
-Full steps, Streamlit Cloud and Supabase: [DEPLOYMENT_GUIDE.md](DEPLOYMENT_GUIDE.md).
-
-## New modules (reviewer upgrade)
-
-| Path | What it does |
-| --- | --- |
-| `capstone/metrics.py` | MAE, RMSE, bias, directional accuracy, drawdown, Sharpe, rolling scores, Diebold-Mariano test |
-| `capstone/model_eval.py` | Four forecasters on the shared walk-forward folds; out-of-sample table; interval coverage |
-| `capstone/costs.py` | Configurable trading costs: explicit charges, spread and slippage, delivery vs intraday |
-| `capstone/weekly.py` | First-open to last-close weekly returns on the observed NSE calendar, exclusions, tradable weeks |
-| `capstone/weekly_model.py` | Weekly return forecast from data before the entry open, quarterly-refit walk-forward |
-| `capstone/backtest.py` | Unfiltered vs cost-aware weekly backtests with equity-based sizing |
-| `capstone/montecarlo.py` | 5,000-path moving-block bootstrap of weekly net returns |
-| `capstone/fundamental_check.py` | Point-in-time revenue/profit trend vs forecast direction |
-| `capstone/db.py`, `migrations/` | Optional Supabase persistence (REST, idempotent upserts) |
-| `capstone/analysis.py`, `capstone/summary.py` | Default analysis run after training; executive summary from measured files |
-| `capstone/charts_eval.py`, `capstone/ui/tab_*.py` | Charts and the new dashboard tabs |
-
----
-
-## Original project notes: India market opening forecast
+# India market opening forecast
 
 Predicts each NSE stock's next opening price from:
 
@@ -173,7 +66,7 @@ environment variables of the same name.
 Check them with `python -m capstone.check_keys` (shows only whether each is set and works).
 If a network blocks outbound calls, allow `api.tejhq.dev`, `api.twelvedata.com` and `api.exchangerate.dev`.
 
-## Quick start (original step-by-step commands)
+## Quick start
 
 One command: `./run_all.sh` (Mac/Linux) or double-click `run_all.bat` (Windows). It installs the
 packages and opens the dashboard, which fetches, trains and predicts by itself (first start: a few
