@@ -5,6 +5,10 @@ data/fx/
 data/SYNTHETIC_DATA
 models/
 .env
+.env.*
+!.env.example
+*.pem
+*.key
 __pycache__/
 .pytest_cache/
 data/company_profiles/
