@@ -10,3 +10,4 @@ pypdf>=4
 openpyxl>=3.1
 plotly>=5.20
 yfinance>=0.2.54
+python-dotenv>=1.0

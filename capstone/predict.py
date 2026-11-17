@@ -18,6 +18,36 @@ from . import explain, features, overnight
 from .paths import FX_DIR, MODELS, PROCESSED
 
 LOG_COLUMNS = ["symbol", "as_of_close", "close", "pred_gap_pct", "pred_open", "pred_open_low", "pred_open_high"]
+# Added for the accuracy dashboard and Supabase; older logs without them are upgraded in place.
+EXTRA_LOG_COLUMNS = ["target_date", "q10_gap_pct", "q90_gap_pct", "model_name", "predicted_at_utc"]
+MODEL_NAME = "hist_gradient_boosting"
+
+
+def append_log(out: pd.DataFrame, log) -> None:
+    """Append today's rows to the prediction log, rewriting it once if its header is older."""
+    cols = LOG_COLUMNS + EXTRA_LOG_COLUMNS
+    if log.exists():
+        old = pd.read_csv(log)
+        if list(old.columns) != cols:
+            pd.concat([old, out[cols]], ignore_index=True).reindex(columns=cols).to_csv(log, index=False)
+            return
+    out[cols].to_csv(log, mode="a", header=not log.exists(), index=False)
+
+
+def save_to_supabase(out: pd.DataFrame) -> str:
+    """Best effort: daily prediction log and stock mapping to Supabase when it is configured."""
+    from . import db
+    from .env import redact
+
+    try:
+        store = db.get_store()
+        if store is None:
+            return "Supabase not configured: prediction logged locally only."
+        store.upsert("stocks", db.stock_rows(overnight.stock_map()))
+        n = store.upsert("daily_predictions", db.prediction_rows(out, MODEL_NAME))
+        return f"Saved {n} predictions to Supabase."
+    except Exception as exc:  # persistence must never break the forecast
+        return redact(f"Supabase save failed (local log is fine): {exc}")
 
 
 def _live_fx() -> float | None:
@@ -56,10 +86,17 @@ def main() -> None:
     keep = LOG_COLUMNS + ["india_sector", "us_etf", "us_sector", "adr", "fx_exposure",
                           *[c for c in features.OVERNIGHT_FEATURES if c in out.columns],
                           *[f"contrib_{n}" for n in contrib.columns], "reason"]
+    end = as_of + pd.offsets.BDay(1)
+    out["target_date"] = f"{end:%Y-%m-%d}"
+    out["q10_gap_pct"] = (gap + bundle["band"]["q10"]) * 100
+    out["q90_gap_pct"] = (gap + bundle["band"]["q90"]) * 100
+    out["model_name"] = MODEL_NAME
+    out["predicted_at_utc"] = pd.Timestamp.now(tz="UTC").strftime("%Y-%m-%d %H:%M")
+    keep += EXTRA_LOG_COLUMNS
     out = out[keep]
     out[LOG_COLUMNS[2:]] = out[LOG_COLUMNS[2:]].round(2)
+    out[["q10_gap_pct", "q90_gap_pct"]] = out[["q10_gap_pct", "q90_gap_pct"]].round(3)
 
-    end = as_of + pd.offsets.BDay(1)
     moves = overnight.sector_moves(as_of, end)
     fx_chg = float(latest["usdinr_chg"].iloc[0]) if latest["usdinr_chg"].notna().any() else float("nan")
     fx_level = _live_fx()
@@ -82,8 +119,8 @@ def main() -> None:
     PROCESSED.mkdir(parents=True, exist_ok=True)
     out.to_csv(PROCESSED / "predictions.csv", index=False)
     (PROCESSED / "overnight_story.json").write_text(json.dumps(story, indent=2, default=float))
-    log = PROCESSED / "predictions_log.csv"
-    out[LOG_COLUMNS].to_csv(log, mode="a", header=not log.exists(), index=False)
+    append_log(out, PROCESSED / "predictions_log.csv")
+    print(save_to_supabase(out))
     print(f"Expected opening: {story['mood']}")
     print("\n".join(f"- {line}" for line in story["lines"]))
     print()

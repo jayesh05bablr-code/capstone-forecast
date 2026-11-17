@@ -10,8 +10,9 @@ import streamlit as st
 
 from capstone import autorun, env, refresh
 from capstone.paths import PROCESSED, SYNTHETIC_FLAG
-from capstone.ui import (common, headline, tab_company, tab_download, tab_invest, tab_live, tab_model,
-                         tab_rupee, tab_scalping, tab_sectors, tab_stocks, tab_uploads)
+from capstone.ui import (assumptions, common, headline, summary, tab_accuracy, tab_backtest, tab_company,
+                         tab_download, tab_forecast, tab_insights, tab_invest, tab_live, tab_montecarlo, tab_rupee,
+                         tab_scalping, tab_sectors, tab_uploads, tab_weekly)
 
 st.set_page_config(page_title="India Opening Forecast", layout="wide")
 env.load_streamlit_secrets()  # keys from the Secrets box when hosted on Streamlit Community Cloud
@@ -77,28 +78,42 @@ if "reason" not in preds.columns or story is None:
 
 moves = pd.DataFrame(story["moves"]).set_index("ticker")
 headline.render(preds, story, moves)
+summary.render(compact=True)
+cfg, chosen = assumptions.render(sorted(preds["symbol"]))
 
-(t_live, t_stocks, t_sectors, t_rupee, t_invest, t_scalp, t_company, t_uploads, t_download,
- t_model) = st.tabs(["Live", "Stocks", "US sectors and India", "Rupee", "Invest planner", "Intraday scalping",
-                     "Company profile", "Upload company data", "Download data", "Model accuracy"])
+(t_forecast, t_accuracy, t_weekly, t_backtest, t_mc, t_insights, t_more) = st.tabs([
+    "Morning forecast", "Model accuracy", "Weekly analysis", "Backtesting", "Monte Carlo", "Business insights",
+    "More tools"])
 
-with t_stocks:
-    symbol = tab_stocks.render(preds, story)
-with t_sectors:
-    tab_sectors.render(preds, moves)
-with t_rupee:
-    tab_rupee.render()
-with t_model:
-    tab_model.render(symbol)  # follows the stock picked on the Stocks tab
-with t_invest:
-    tab_invest.render(preds)
-with t_uploads:
-    tab_uploads.render(preds, story)
-with t_download:
-    tab_download.render()
-with t_scalp:
-    tab_scalping.render(preds)
-with t_company:
-    tab_company.render(preds)
-with t_live:  # drawn last so it reads the settings chosen on the Intraday scalping tab
-    tab_live.render(preds)
+with t_forecast:
+    symbol = tab_forecast.render(preds, story)
+with t_accuracy:
+    tab_accuracy.render(symbol)  # follows the stock picked on the Morning forecast tab
+with t_weekly:
+    tab_weekly.render(cfg, chosen)
+with t_backtest:
+    bt = tab_backtest.render(cfg, chosen)
+with t_mc:
+    tab_montecarlo.render(cfg, bt)
+with t_insights:
+    tab_insights.render(preds, story)
+with t_more:
+    (t_live, t_sectors, t_rupee, t_invest, t_scalp, t_company, t_uploads, t_download) = st.tabs(
+        ["Live", "US sectors and India", "Rupee", "Invest planner", "Intraday scalping", "Company profile",
+         "Upload company data", "Download data"])
+    with t_sectors:
+        tab_sectors.render(preds, moves)
+    with t_rupee:
+        tab_rupee.render()
+    with t_invest:
+        tab_invest.render(preds)
+    with t_uploads:
+        tab_uploads.render(preds, story)
+    with t_download:
+        tab_download.render()
+    with t_scalp:
+        tab_scalping.render(preds)
+    with t_company:
+        tab_company.render(preds)
+    with t_live:  # drawn last so it reads the settings chosen on the Intraday scalping tab
+        tab_live.render(preds)

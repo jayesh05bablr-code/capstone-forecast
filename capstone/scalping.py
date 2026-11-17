@@ -26,14 +26,16 @@ SESSION_MINUTES = 375  # 09:15 to 15:30
 
 
 def charges(buy_value: float, sell_value: float, brokerage_per_order: float = 20.0) -> float:
-    """Approximate NSE intraday equity charges for one round trip (both legs), in ₹."""
-    brokerage = min(brokerage_per_order, 0.0003 * buy_value) + min(brokerage_per_order, 0.0003 * sell_value)
-    stt = 0.00025 * sell_value
-    exchange = 0.0000297 * (buy_value + sell_value)
-    sebi = 0.000001 * (buy_value + sell_value)
-    stamp = 0.00003 * buy_value
-    gst = 0.18 * (brokerage + exchange + sebi)
-    return brokerage + stt + exchange + sebi + stamp + gst
+    """Approximate NSE intraday equity charges for one round trip (both legs), in ₹.
+
+    Explicit charges only (no spread or slippage), from the shared cost model in costs.py with
+    the intraday (MIS) instrument profile.
+    """
+    from .costs import CostAssumptions, explicit_charges
+
+    a = CostAssumptions(instrument="equity_intraday", brokerage_cap=brokerage_per_order,
+                        brokerage_pct=0.0003 if brokerage_per_order > 0 else 0.0)
+    return explicit_charges(buy_value, sell_value, a)["explicit_total"]
 
 
 def estimate_range(price: float, daily_vol: float, or_minutes: int, open_boost: float) -> float:
