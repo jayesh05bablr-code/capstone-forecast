@@ -7,6 +7,7 @@ import streamlit as st
 from capstone import charts, evaluation
 from capstone.paths import MODELS, PROCESSED
 from capstone.ui.common import raw_prices
+from capstone.charts import CONFIG as CHART_CONFIG
 
 
 def render(symbol: str) -> None:
@@ -29,4 +30,4 @@ def render(symbol: str) -> None:
             st.plotly_chart(charts.line(joined, "as_of_close", {"pred_open": "Predicted open",
                                                                 "actual_open": "Actual open"},
                                         f"{symbol}: past predictions vs actual open", "₹"),
-                            use_container_width=True)
+                            use_container_width=True, config=CHART_CONFIG)

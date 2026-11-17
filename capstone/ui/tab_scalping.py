@@ -9,6 +9,7 @@ import streamlit as st
 from capstone import charts, intraday, scalping
 from capstone.ui import kite_view
 from capstone.ui.common import raw_prices
+from capstone.charts import CONFIG as CHART_CONFIG
 
 
 @dataclass
@@ -194,7 +195,7 @@ def _backtest(preds: pd.DataFrame, cfg: Settings) -> None:
     curve = trades.assign(date=pd.to_datetime(trades["date"]), equity=trades["net_pnl"].cumsum())
     st.plotly_chart(charts.line(curve, "date", {"equity": "Cumulative net P&L"},
                                 "Backtest: cumulative profit after charges", "₹"),
-                    use_container_width=True)
+                    use_container_width=True, config=CHART_CONFIG)
     st.dataframe(bt.round(2), use_container_width=True, hide_index=True)
     if "Model" in cfg.bias_src:
         st.caption("Past model forecasts aren't stored per day, so the backtest uses the actual "

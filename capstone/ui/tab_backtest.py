@@ -6,6 +6,7 @@ import streamlit as st
 
 from capstone import backtest, charts_eval, weekly_model
 from capstone.ui import data_cache
+from capstone.charts import CONFIG as CHART_CONFIG
 
 RULES = """
 **Rules.** Signals are the weekly model's walk-forward forecasts, made only from data before each week's entry
@@ -47,8 +48,10 @@ def render(cfg, symbols: list[str]) -> dict | None:
         "max_drawdown_pct": "Maximum drawdown %", "sharpe_annualised": "Sharpe ratio (annualised)",
         "avg_net_return_per_trade_pct": "Average net return per trade %"})
     st.dataframe(table.astype(float).round(2), use_container_width=True)
-    st.plotly_chart(charts_eval.equity_curves(res["weeks"], names, cfg.initial_capital), use_container_width=True)
-    st.plotly_chart(charts_eval.drawdown_curves(res["weeks"], names, cfg.initial_capital), use_container_width=True)
+    st.plotly_chart(charts_eval.equity_and_drawdown(res["weeks"], names, cfg.initial_capital),
+                    use_container_width=True, config=CHART_CONFIG)
+    st.caption("Top: capital after all costs. Bottom: how far each strategy is below its previous peak. "
+               "Click a legend entry to hide a strategy; drag to zoom into a period.")
     kind = st.radio("Trades of", ["A", "B"], format_func=names.get, horizontal=True, key="bt_trades")
     trades = res["trades"][kind]
     st.dataframe(trades.round(2), hide_index=True, use_container_width=True, height=300)

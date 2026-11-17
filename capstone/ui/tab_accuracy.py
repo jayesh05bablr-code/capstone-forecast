@@ -9,6 +9,7 @@ from capstone.model_eval import MODEL_LABELS
 from capstone.paths import MODELS, PROCESSED
 from capstone.ui import data_cache
 from capstone.ui.common import raw_prices
+from capstone.charts import CONFIG as CHART_CONFIG
 
 METRIC_COLS = {"model_label": "Model", "n": "Test days x stocks", "mae_pct": "MAE (% pts)", "rmse_pct": "RMSE (% pts)",
                "bias_pct": "Bias (% pts)", "direction_acc_pct": "Directional accuracy %"}
@@ -72,9 +73,9 @@ def render(symbol: str) -> None:
                  use_container_width=True)
     c1, c2 = st.columns(2)
     c1.plotly_chart(charts_eval.metric_bars(table, "mae_pct", "MAE (% points, lower is better)", MODEL_LABELS),
-                    use_container_width=True)
+                    use_container_width=True, config=CHART_CONFIG)
     c2.plotly_chart(charts_eval.metric_bars(table, "direction_acc_pct", "Directional accuracy (%, higher is better)",
-                                            MODEL_LABELS), use_container_width=True)
+                                            MODEL_LABELS), use_container_width=True, config=CHART_CONFIG)
 
     tests = data_cache.models_csv("model_significance.csv")
     if tests is not None:
@@ -88,14 +89,16 @@ def render(symbol: str) -> None:
     if stock == "All stocks":
         day = day[day["date"] >= pd.Timestamp(recent)]
         st.caption("Showing the last 12 months of the selection for readability.")
-    st.plotly_chart(charts_eval.predicted_vs_actual(day, MODEL_LABELS), use_container_width=True)
+    st.plotly_chart(charts_eval.predicted_vs_actual(day, MODEL_LABELS), use_container_width=True, config=CHART_CONFIG)
+    st.caption("Bars = actual gap (green up, red down); lines = forecasts. The naive and historical-average lines "
+               "start hidden: click their legend entries to show them. Drag the strip below the chart to zoom.")
     focus = st.selectbox("Model for the scatter and error charts", models, format_func=MODEL_LABELS.get,
                          index=models.index("hist_gradient_boosting") if "hist_gradient_boosting" in models else 0,
                          key="acc_focus")
     f = day[day["model"] == focus]
     c1, c2 = st.columns(2)
-    c1.plotly_chart(charts_eval.scatter_actual_vs_pred(f, MODEL_LABELS[focus], focus), use_container_width=True)
-    c2.plotly_chart(charts_eval.daily_error(f, MODEL_LABELS[focus], focus), use_container_width=True)
+    c1.plotly_chart(charts_eval.scatter_actual_vs_pred(f, MODEL_LABELS[focus], focus), use_container_width=True, config=CHART_CONFIG)
+    c2.plotly_chart(charts_eval.daily_error(f, MODEL_LABELS[focus], focus), use_container_width=True, config=CHART_CONFIG)
 
     window = st.slider("Rolling window (trading days)", 20, 250, 60, 10, key="acc_window")
     roll = {}
@@ -105,10 +108,10 @@ def render(symbol: str) -> None:
         roll[m] = r.groupby("date", as_index=False).last()
     c1, c2 = st.columns(2)
     c1.plotly_chart(charts_eval.rolling_lines(roll, "rolling_mae_pct", f"Rolling MAE ({window} days)", "MAE (% points)",
-                                              MODEL_LABELS), use_container_width=True)
+                                              MODEL_LABELS), use_container_width=True, config=CHART_CONFIG)
     c2.plotly_chart(charts_eval.rolling_lines(roll, "rolling_direction_acc_pct", f"Rolling directional accuracy "
                                               f"({window} days)", "Directional accuracy (%)", MODEL_LABELS),
-                    use_container_width=True)
+                    use_container_width=True, config=CHART_CONFIG)
 
     st.markdown("**Stock-wise accuracy** (selected dates and models)")
     by_stock = metrics.score_table(sel, ["symbol", "model"]).assign(model=lambda t: t["model"].map(MODEL_LABELS))
@@ -141,4 +144,4 @@ def render(symbol: str) -> None:
             st.plotly_chart(charts.line(joined, "as_of_close", {"pred_open": "Predicted open",
                                                                 "actual_open": "Actual open"},
                                         f"{symbol}: logged predictions vs actual open", "₹"),
-                            use_container_width=True)
+                            use_container_width=True, config=CHART_CONFIG)

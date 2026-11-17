@@ -5,6 +5,7 @@ import streamlit as st
 
 from capstone import backtest, charts_eval, montecarlo
 from capstone.ui import data_cache
+from capstone.charts import CONFIG as CHART_CONFIG
 
 NOTE = """
 **How it works.** Each simulated path draws blocks of consecutive weeks (with replacement) from Strategy B's
@@ -52,9 +53,9 @@ def render(cfg, bt: dict | None) -> None:
 
     c1, c2 = st.columns(2)
     c1.plotly_chart(charts_eval.histogram(sims["ending_capital"], "Ending capital", "₹", "#2a78d6",
-                                          {"Start": cfg.initial_capital}), use_container_width=True)
+                                          {"Start": cfg.initial_capital}), use_container_width=True, config=CHART_CONFIG)
     c2.plotly_chart(charts_eval.histogram(sims["max_drawdown_pct"], "Maximum drawdown", "%", "#eb6834"),
-                    use_container_width=True)
+                    use_container_width=True, config=CHART_CONFIG)
     st.plotly_chart(charts_eval.histogram(sims["cumulative_return_pct"], "Cumulative return", "%", "#1baf7a",
-                                          {"Break-even": 0.0}), use_container_width=True)
+                                          {"Break-even": 0.0}), use_container_width=True, config=CHART_CONFIG)
     st.markdown(NOTE)

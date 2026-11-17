@@ -5,6 +5,7 @@ import pandas as pd
 import streamlit as st
 
 from capstone import charts_eval, costs, weekly
+from capstone.charts import CONFIG as CHART_CONFIG
 from capstone.ui import assumptions, data_cache
 
 METHOD = """
@@ -50,11 +51,13 @@ def render(cfg, symbols: list[str]) -> None:
         "worst_week_return_pct": "Worst %", "round_trip_cost_pct": "Round-trip cost %", "excluded_weeks": "Excluded"})
     st.dataframe(show.round(2), hide_index=True, use_container_width=True)
 
-    for sym in symbols:
+    shown = st.pills("Stocks to chart", symbols, selection_mode="multi", default=symbols[:1], key="wk_syms") or symbols[:1]
+    for sym in shown:
         w = weeks[(weeks["symbol"] == sym) & weeks["valid"]]
         if len(w):
-            st.plotly_chart(charts_eval.weekly_delta(w, sym, cost_pct), use_container_width=True)
-    st.caption("Green = the week's realised return beat the round-trip cost (dashed line); grey = it did not.")
+            st.plotly_chart(charts_eval.weekly_delta(w, sym, cost_pct), use_container_width=True, config=CHART_CONFIG)
+    st.caption("Green = the week's realised return beat the round-trip cost (dashed red line); grey = it did not. "
+               "Blue line = 13-week average. Drag the strip under the chart to zoom into a period.")
 
     with st.expander("Cost breakdown for one position"):
         st.dataframe(costs.breakdown_table(pos, cfg.assumptions), hide_index=True)
