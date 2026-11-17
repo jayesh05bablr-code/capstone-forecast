@@ -19,6 +19,7 @@ data/*.csv
 !data/fundamentals_template.csv
 !data/sector_links.csv
 !data/stock_map.csv
+!data/corporate_actions.csv
 
 # Streamlit Cloud keys (paste them in the Secrets box instead)
 .streamlit/secrets.toml
