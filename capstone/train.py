@@ -120,6 +120,13 @@ def main() -> None:
     from . import model_eval
     model_eval.print_report(model_eval.evaluate(df, cols))
 
+    # Weekly analysis, weekly model, backtests and Monte Carlo (and Supabase, if configured).
+    from . import analysis
+    try:
+        analysis.main()
+    except (ValueError, FileNotFoundError) as exc:  # e.g. too little history for the weekly model
+        print(f"Weekly analysis skipped: {exc}")
+
 
 if __name__ == "__main__":
     main()
