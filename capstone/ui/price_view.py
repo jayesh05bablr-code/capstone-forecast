@@ -47,6 +47,30 @@ def _metric_strip(snap: dict) -> None:
                f" · 200-day ₹{snap['sma200']:,.2f} · data to {pd.Timestamp(snap['date']):%a %d %b %Y}")
 
 
+def axis_controls(key: str, intraday: bool = False, default_height: int = 520) -> dict:
+    """'Chart size & axes' expander shared by the price charts. Returns the settings as a dict."""
+    with st.expander("Chart size & axes (make candles bigger, set Y and X axis units)"):
+        c = st.columns(4)
+        ax = {"price_height": c[0].slider("Chart height (px)", 350, 1400, default_height, 50, key=f"{key}_h",
+                                         help="Taller chart = taller candles.")}
+        ax["bars"] = c[1].number_input("Candles on screen (0 = use Period)", 0, 5000, 0, 10, key=f"{key}_bars",
+                                       help="Fewer candles = wider candles. E.g. 40 shows the last 40 sessions"
+                                            + (" (minutes)" if intraday else "") + ".")
+        ax["y_units"] = c[2].radio("Y axis units", ["₹ price", "% change"], key=f"{key}_yu", horizontal=True,
+                                   help="% change is measured from the first candle on screen.")
+        steps = list(charts.X_STEPS_INTRADAY if intraday else charts.X_STEPS)
+        ax["x_step"] = c[3].selectbox("X axis tick every", steps, key=f"{key}_xs")
+        d = st.columns(4)
+        ax["y_mode"] = d[0].radio("Y axis range", ["Auto fit", "Manual"], key=f"{key}_ym", horizontal=True)
+        manual = ax["y_mode"] == "Manual"
+        ax["y_min"] = d[1].number_input("Y min (₹)", 0.0, 1e7, 0.0, 1.0, key=f"{key}_ymin", disabled=not manual)
+        ax["y_max"] = d[2].number_input("Y max (₹)", 0.0, 1e7, 0.0, 1.0, key=f"{key}_ymax", disabled=not manual)
+        ax["y_step"] = d[3].number_input("Y grid step (₹ or %, 0 = auto)", 0.0, 1e5, 0.0, 0.5, key=f"{key}_ystep")
+        st.caption("Tip: you can also drag on an axis to stretch it, scroll on the chart to zoom, and double-click "
+                   "to reset.")
+    return ax
+
+
 def render(symbol: str, hist: pd.DataFrame, forecast: dict | None = None, key: str = "pv") -> None:
     actions = ind.corporate_actions(symbol)
     top = st.columns([4, 2, 2, 2])
@@ -60,10 +84,16 @@ def render(symbol: str, hist: pd.DataFrame, forecast: dict | None = None, key: s
     overlays = mid[0].multiselect("Overlays", charts.OVERLAYS, default=["SMA 20", "SMA 50"], key=f"{key}_ovl")
     panels = mid[1].multiselect("Lower panels", charts.PANELS, default=["Volume", "RSI 14"], key=f"{key}_pan")
 
+    ax = axis_controls(key)
+
     df = ind.adjust_for_actions(hist, actions) if adjust else hist.sort_values("date")
     _metric_strip(ind.snapshot(df))
     fig = charts.price_chart(df, f"{symbol} · daily", period=period, chart_style=chart_style, overlays=overlays,
-                             panels=panels, log=log, forecast=forecast)
+                             panels=panels, log=log, forecast=forecast, bars=int(ax["bars"]) or None,
+                             price_height=ax["price_height"])
+    n_shown = int(ax["bars"]) or ind.PERIODS.get(period) or len(df)
+    closes = df.sort_values("date")["close"]
+    charts.apply_axes(fig, ax, base=float(closes.iloc[-min(n_shown, len(closes))]) if len(closes) else None)
     st.plotly_chart(fig, use_container_width=True, config=charts.CONFIG, key=f"{key}_chart")
     notes = [TIPS]
     if forecast:

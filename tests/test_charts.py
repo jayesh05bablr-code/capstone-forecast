@@ -83,3 +83,44 @@ def test_breaks_keep_special_weekend_sessions():
     br = charts._breaks(d)
     assert all("bounds" not in b for b in br)
     assert "2026-11-08" not in br[0]["values"] and "2026-11-07" in br[0]["values"]
+
+
+def _minutes(days=("2026-11-12", "2026-11-13")):
+    rows = []
+    for d in days:
+        t = pd.date_range(f"{d} 09:15", periods=60, freq="min")
+        base = 100 + np.r_[np.zeros(15), np.linspace(0, 3, 45)]   # flat range, then a breakout up
+        rows.append(pd.DataFrame({"datetime": t, "open": base, "high": base + 0.2, "low": base - 0.2,
+                                  "close": base + 0.1, "volume": 1000}))
+    return pd.concat(rows, ignore_index=True)
+
+
+def test_scalping_backtest_reports_trade_levels():
+    from capstone import scalping
+    bt = scalping.backtest(_minutes(), 15, 60, 2.0, 0.0, "Both directions", 1000, 20)
+    t = bt[bt["side"] != "No trade"].iloc[0]
+    assert t["or_low"] < t["or_high"] <= t["entry"] and t["stop"] == t["or_low"]
+    assert t["entry_time"] <= t["exit_time"]
+
+
+def test_intraday_chart_and_single_trade_pnl_visible():
+    from capstone import scalping
+    m = _minutes(("2026-11-13",))
+    bt = scalping.backtest(m, 15, 60, 2.0, 0.0, "Both directions", 1000, 20)
+    r = bt.iloc[0].to_dict()
+    r["or_end"] = pd.Timestamp("2026-11-13 09:30")
+    fig = charts.intraday_chart(m, "t", r)
+    names = [d.name for d in fig.data]
+    assert "Entry" in names and "Exit" in names and "VWAP" in names
+    lo, hi = fig.layout.yaxis.range
+    assert lo <= r["stop"] and hi >= max(r["target"], m["high"].max()) - 1e-9
+
+
+def test_apply_axes_units_and_manual_range():
+    fig = charts.price_chart(_prices(), "t", period="3M")
+    base = float(_prices()["close"].iloc[-63])
+    charts.apply_axes(fig, {"y_units": "% change", "y_step": 1.0, "x_step": "Week"}, base=base)
+    assert all(t.endswith("%") for t in fig.layout.yaxis.ticktext)
+    assert fig.layout.xaxis.dtick == 7 * 86_400_000
+    charts.apply_axes(fig, {"y_mode": "Manual", "y_min": 90, "y_max": 120})
+    assert tuple(fig.layout.yaxis.range) == (90, 120)

@@ -3,11 +3,13 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+import numpy as np
 import pandas as pd
+from plotly.subplots import make_subplots
 import streamlit as st
 
 from capstone import charts, intraday, scalping
-from capstone.ui import kite_view
+from capstone.ui import kite_view, price_view
 from capstone.ui.common import raw_prices
 from capstone.charts import CONFIG as CHART_CONFIG
 
@@ -161,6 +163,62 @@ def _plan(ranges: pd.DataFrame, cfg: Settings) -> None:
     kite_view.render_scalps([p for p in rows if p["qty"] > 0], key="scalp_kite")
 
 
+def _pnl_chart(trades: pd.DataFrame):
+    """Net P&L of each trade (bars) and the running total (line with markers, visible even for one trade)."""
+    t = trades.assign(date=pd.to_datetime(trades["date"])).sort_values("date")
+    t = t.assign(equity=t["net_pnl"].cumsum(), label=t["date"].dt.strftime("%d %b %Y"))
+    fig = make_subplots(specs=[[{"secondary_y": False}]])
+    fig.add_bar(x=t["label"], y=t["net_pnl"], name="Trade P&L", marker_line_width=0,
+                marker_color=np.where(t["net_pnl"] >= 0, charts.UP, charts.DOWN),
+                customdata=np.c_[t["side"], t["exit_by"].fillna("")],
+                hovertemplate="%{x}: %{customdata[0]}, exit by %{customdata[1]}<br>Net ₹%{y:,.0f}<extra></extra>")
+    fig.add_scatter(x=t["label"], y=t["equity"], name="Running total", mode="lines+markers",
+                    line=dict(color="#2a78d6", width=2), marker=dict(size=8),
+                    hovertemplate="Running total ₹%{y:,.0f}<extra></extra>")
+    fig.add_hline(y=0, line=dict(color=charts.MUTED, width=1))
+    charts.style(fig, height=420, title="Backtest: profit after charges, trade by trade")
+    fig.update_xaxes(type="category", title_text="Trading day")
+    fig.update_yaxes(tickprefix="₹", tickformat=",.0f", title_text="₹")
+    return fig
+
+
+def _day_chart(mins: pd.DataFrame, bt: pd.DataFrame, cfg: Settings, name: str) -> None:
+    """1-minute candles for one tested day with the opening range, entry, stop, target and exit drawn."""
+    days = sorted(mins["datetime"].dt.date.unique(), reverse=True)
+    if not days:
+        return
+    traded = set(pd.to_datetime(bt.loc[bt["side"] != "No trade", "date"]).dt.date) if len(bt) else set()
+    c1, c2 = st.columns([2, 3])
+    day = c1.selectbox("Show the minute chart for", days, key="scalp_day",
+                       format_func=lambda d: f"{d:%a %d %b %Y}" + ("  · traded" if d in traded else ""))
+    whole = c2.toggle("Show the whole session (not only the trading window)", key="scalp_whole")
+    ax = price_view.axis_controls("scalp_ax", intraday=True, default_height=480)
+    m = mins[mins["datetime"].dt.date == day]
+    start = pd.Timestamp(day) + pd.Timedelta(hours=9, minutes=15)
+    if not whole:
+        m = m[(m["datetime"] >= start) & (m["datetime"] < start + pd.Timedelta(minutes=cfg.window + 15))]
+    if ax["bars"]:
+        m = m.tail(int(ax["bars"]))
+    if m.empty:
+        st.info("No minute candles for this day in the trading window.")
+        return
+    row = bt[pd.to_datetime(bt["date"]).dt.date == day] if len(bt) else bt
+    trade = None
+    if len(row):
+        r = row.iloc[0].to_dict()
+        trade = {k: r.get(k) for k in ("or_high", "or_low", "entry", "stop", "target", "exit", "entry_time",
+                                       "exit_time")}
+        trade["or_end"] = start + pd.Timedelta(minutes=cfg.or_min)
+        if r.get("side") == "No trade":
+            trade.update(entry=None, stop=None, target=None, exit=None)
+    fig = charts.intraday_chart(m, f"{name}: 1-minute candles, {day:%a %d %b %Y}", trade,
+                                price_height=ax["price_height"])
+    charts.apply_axes(fig, ax, base=float(m["close"].iloc[0]))
+    st.plotly_chart(fig, use_container_width=True, config=CHART_CONFIG, key="scalp_day_chart")
+    st.caption("Shaded box = opening range. Dashed lines = entry, stop and target; ▲ = entry, ✕ = exit. "
+               "Orange line = VWAP (when volume is available).")
+
+
 def _backtest(preds: pd.DataFrame, cfg: Settings) -> None:
     """Step 3: run the rule over stored or uploaded 1-minute candles."""
     st.markdown("**Step 3. Test the rule on real minute data (optional)**")
@@ -174,6 +232,7 @@ def _backtest(preds: pd.DataFrame, cfg: Settings) -> None:
         bt_sym = st.selectbox("Or test on the 1-minute data fetched from the internet", fetched, key="bt_sym")
     if m_up is None and not bt_sym:
         return
+    mins = pd.DataFrame()
     try:
         mins = scalping.read_minutes(m_up.name, m_up.getvalue()) if m_up is not None \
             else intraday.load(bt_sym)[["datetime", "open", "high", "low", "close"]]
@@ -184,18 +243,20 @@ def _backtest(preds: pd.DataFrame, cfg: Settings) -> None:
         st.error(f"Could not use this file: {exc}")
         bt = pd.DataFrame()
     trades = bt[bt["side"] != "No trade"] if len(bt) else bt
+    name = bt_sym or (m_up.name if m_up is not None else "")
     if not len(trades):
-        st.info("No trades triggered in this data with these settings.")
+        st.info("No trades triggered in this data with these settings. The minute chart below still shows "
+                "each day's candles and opening range.")
+        if len(mins):
+            _day_chart(intraday.load(bt_sym) if bt_sym else mins, bt, cfg, name)
         return
     k1, k2, k3, k4 = st.columns(4)
     k1.metric("Days tested", len(bt))
     k2.metric("Trades", len(trades))
     k3.metric("Win rate", f"{(trades['net_pnl'] > 0).mean() * 100:.1f}%")
     k4.metric("Net P&L after charges", f"₹{trades['net_pnl'].sum():,.0f}")
-    curve = trades.assign(date=pd.to_datetime(trades["date"]), equity=trades["net_pnl"].cumsum())
-    st.plotly_chart(charts.line(curve, "date", {"equity": "Cumulative net P&L"},
-                                "Backtest: cumulative profit after charges", "₹"),
-                    use_container_width=True, config=CHART_CONFIG)
+    st.plotly_chart(_pnl_chart(trades), use_container_width=True, config=CHART_CONFIG)
+    _day_chart(intraday.load(bt_sym) if bt_sym else mins, bt, cfg, name)  # full columns: volume for VWAP
     st.dataframe(bt.round(2), use_container_width=True, hide_index=True)
     if "Model" in cfg.bias_src:
         st.caption("Past model forecasts aren't stored per day, so the backtest uses the actual "

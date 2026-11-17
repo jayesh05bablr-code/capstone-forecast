@@ -95,7 +95,8 @@ def _fmt_vol(v: float) -> str:
 
 def price_chart(df: pd.DataFrame, title: str, *, period: str = "6M", chart_style: str = "Candles",
                 overlays=("SMA 20", "SMA 50"), panels=("Volume", "RSI 14"), log: bool = False,
-                forecast: dict | None = None, levels: dict | None = None) -> go.Figure:
+                forecast: dict | None = None, levels: dict | None = None, bars: int | None = None,
+                price_height: int = 520) -> go.Figure:
     """df: date, open, high, low, close[, volume], sorted or not, ideally already adjusted.
 
     forecast: {date, open, low, high} for the expected next open. levels: {label: (value, colour)}.
@@ -111,7 +112,7 @@ def price_chart(df: pd.DataFrame, title: str, *, period: str = "6M", chart_style
     has_vol = "volume" in full and full["volume"].notna().any()
     panels = [p for p in panels if p != "Volume" or has_vol]
 
-    n = ind.PERIODS.get(period)
+    n = bars or ind.PERIODS.get(period)   # bars (candles on screen) overrides the period
     idx = full.index if n is None else full.index[-n:]
     h = full.loc[idx]
     if chart_style == "Heikin-Ashi":
@@ -119,7 +120,7 @@ def price_chart(df: pd.DataFrame, title: str, *, period: str = "6M", chart_style
     x = h["date"]
 
     rows = 1 + len(panels)
-    price_h = 520
+    price_h = price_height
     panel_h = 130
     heights = [price_h] + [panel_h] * len(panels)
     fig = make_subplots(rows=rows, cols=1, shared_xaxes=True, vertical_spacing=0.025,
@@ -261,6 +262,114 @@ def price_chart(df: pd.DataFrame, title: str, *, period: str = "6M", chart_style
     span = pd.Timedelta(days=2 if forecast else 1)
     fig.update_xaxes(rangebreaks=_breaks(x, pd.Timestamp(forecast["date"]) if forecast else None),
                      range=[x.min() - pd.Timedelta(hours=18), end_x + span])
+    for r in range(1, rows):
+        fig.update_xaxes(showticklabels=False, row=r, col=1)
+    return fig
+
+
+X_STEPS = {"Auto": None, "Day": 86_400_000, "Week": 7 * 86_400_000, "Month": "M1", "Quarter": "M3",
+           "Year": "M12"}
+X_STEPS_INTRADAY = {"Auto": None, "5 min": 300_000, "15 min": 900_000, "30 min": 1_800_000, "1 hour": 3_600_000}
+X_FORMATS = {"Auto": None, "Day": "%d %b", "Week": "%d %b", "Month": "%b %Y", "Quarter": "%b %Y", "Year": "%Y",
+             "5 min": "%H:%M", "15 min": "%H:%M", "30 min": "%H:%M", "1 hour": "%H:%M"}
+
+
+def apply_axes(fig: go.Figure, ax: dict | None, base: float | None = None, xaxes_rows: int = 1) -> go.Figure:
+    """Apply the user's axis settings to the price axis (row 1) and the shared time axis.
+
+    ax keys: y_units ("₹ price" | "% change"), y_mode ("Auto fit" | "Manual"), y_min, y_max,
+    y_step (₹ or % between grid lines; 0 = auto), x_step (key of X_STEPS / X_STEPS_INTRADAY).
+    base: price the % scale is measured from (first visible close).
+    """
+    if not ax:
+        return fig
+    yax = fig.layout.yaxis
+    lo, hi = (yax.range or (None, None))
+    if ax.get("y_mode") == "Manual" and ax.get("y_max", 0) > ax.get("y_min", 0) > 0:
+        lo, hi = float(ax["y_min"]), float(ax["y_max"])
+        fig.update_yaxes(range=[lo, hi] if yax.type != "log" else [np.log10(lo), np.log10(hi)], row=1, col=1)
+    step = float(ax.get("y_step") or 0)
+    if ax.get("y_units") == "% change" and base and lo is not None and yax.type != "log":
+        step_pct = step or _nice_step((hi - lo) / base * 100 / 8)
+        k0, k1 = int(np.floor((lo / base - 1) * 100 / step_pct)), int(np.ceil((hi / base - 1) * 100 / step_pct))
+        vals = [base * (1 + k * step_pct / 100) for k in range(k0, k1 + 1)]
+        fig.update_yaxes(tickmode="array", tickvals=vals, ticktext=[f"{k * step_pct:+g}%" for k in range(k0, k1 + 1)],
+                         tickprefix="", row=1, col=1)
+        fig.update_yaxes(title_text=f"% vs {base:,.2f}", row=1, col=1)
+    elif step > 0:
+        fig.update_yaxes(dtick=step, tickmode="linear", row=1, col=1)
+    xs = ax.get("x_step", "Auto")
+    dt = {**X_STEPS, **X_STEPS_INTRADAY}.get(xs)
+    if dt:
+        fig.update_xaxes(dtick=dt, tickformat=X_FORMATS.get(xs))
+    if ax.get("x_grid") is False:
+        fig.update_xaxes(showgrid=False)
+    return fig
+
+
+def _nice_step(raw: float) -> float:
+    if raw <= 0:
+        return 1.0
+    mag = 10 ** np.floor(np.log10(raw))
+    return float(min((m * mag for m in (1, 2, 2.5, 5, 10) if m * mag >= raw), default=10 * mag))
+
+
+def intraday_chart(mins: pd.DataFrame, title: str, trade: dict | None = None, price_height: int = 520,
+                   show_volume: bool = True) -> go.Figure:
+    """1-minute candles for one day with the opening range shaded and the trade's entry, stop, target and exit."""
+    m = mins.sort_values("datetime")
+    has_vol = show_volume and "volume" in m and m["volume"].notna().any() and m["volume"].sum() > 0
+    rows = 2 if has_vol else 1
+    heights = [price_height, 120] if has_vol else [price_height]
+    fig = make_subplots(rows=rows, cols=1, shared_xaxes=True, vertical_spacing=0.03,
+                        row_heights=[h / sum(heights) for h in heights])
+    hover = [f"{t:%H:%M}  O {o:,.2f}  H {h:,.2f}  L {lo:,.2f}  C {c:,.2f}"
+             for t, o, h, lo, c in zip(m["datetime"], m["open"], m["high"], m["low"], m["close"])]
+    fig.add_trace(go.Candlestick(x=m["datetime"], open=m["open"], high=m["high"], low=m["low"], close=m["close"],
+                                 increasing=dict(line=dict(color=UP, width=1), fillcolor=UP),
+                                 decreasing=dict(line=dict(color=DOWN, width=1), fillcolor=DOWN),
+                                 whiskerwidth=0, hovertext=hover, hoverinfo="text", name="1-min", showlegend=False),
+                  row=1, col=1)
+    tp = (m["high"] + m["low"] + m["close"]) / 3
+    if has_vol:
+        vwap = (tp * m["volume"]).cumsum() / m["volume"].cumsum()
+        fig.add_trace(go.Scatter(x=m["datetime"], y=vwap, name="VWAP", mode="lines",
+                                 line=dict(color="#eda100", width=1.6),
+                                 hovertemplate="VWAP %{y:,.2f}<extra></extra>"), row=1, col=1)
+        fig.add_trace(go.Bar(x=m["datetime"], y=m["volume"], name="Volume", showlegend=False, marker_line_width=0,
+                             marker_color=np.where(m["close"] >= m["open"], UP_FADE, DOWN_FADE),
+                             hovertemplate="Vol %{y:,.3s}<extra></extra>"), row=2, col=1)
+        fig.update_yaxes(title_text="Volume", tickformat=".2s", side="right", row=2, col=1)
+    y_vals = [m["low"].min(), m["high"].max()]
+    if trade:
+        t0 = m["datetime"].iloc[0]
+        or_end = trade.get("or_end")
+        if trade.get("or_high") is not None and or_end is not None:
+            fig.add_shape(type="rect", x0=t0, x1=or_end, y0=trade["or_low"], y1=trade["or_high"],
+                          fillcolor="rgba(98,80,214,0.10)", line=dict(color="#6250d6", width=1, dash="dot"),
+                          row=1, col=1)
+            fig.add_annotation(x=t0, y=trade["or_high"], text="Opening range", showarrow=False, yshift=10,
+                               xanchor="left", font=dict(size=11, color="#6250d6"), row=1, col=1)
+        for label, key, color in (("Entry", "entry", "#2a78d6"), ("Stop", "stop", DOWN), ("Target", "target", UP)):
+            v = trade.get(key)
+            if v is not None and v == v:
+                fig.add_hline(y=v, line=dict(color=color, width=1.2, dash="dash"), row=1, col=1,
+                              annotation=dict(text=f"{label} {v:,.2f}", font=dict(size=11, color=color),
+                                              bgcolor="rgba(255,255,255,0.8)"), annotation_position="top left")
+                y_vals.append(v)
+        for label, tkey, pkey, sym, color in (("Entry", "entry_time", "entry", "triangle-up", "#2a78d6"),
+                                              ("Exit", "exit_time", "exit", "x", "#2b2b2b")):
+            if trade.get(tkey) is not None and trade.get(pkey) is not None:
+                fig.add_trace(go.Scatter(x=[trade[tkey]], y=[trade[pkey]], mode="markers", name=label,
+                                         marker=dict(symbol=sym, size=12, color=color, line=dict(width=1, color="white")),
+                                         hovertemplate=f"{label} ₹%{{y:,.2f}} at %{{x|%H:%M}}<extra></extra>"),
+                              row=1, col=1)
+    lo, hi = float(np.nanmin(y_vals)), float(np.nanmax(y_vals))
+    pad = (hi - lo) * 0.06 or hi * 0.002
+    fig.update_yaxes(range=[lo - pad, hi + pad], side="right", tickprefix="₹", tickformat=",.2f", row=1, col=1)
+    style(fig, height=sum(heights) + 90, title=title)
+    fig.update_layout(xaxis_rangeslider_visible=False, dragmode="pan", margin=dict(l=10, r=78, t=70, b=10))
+    fig.update_xaxes(tickformat="%H:%M")
     for r in range(1, rows):
         fig.update_xaxes(showticklabels=False, row=r, col=1)
     return fig
