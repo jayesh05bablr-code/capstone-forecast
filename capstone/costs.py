@@ -38,7 +38,7 @@ INSTRUMENT_DEFAULTS = {
 }
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, eq=False)
 class CostAssumptions:
     """Every number that drives the cost of a trade. All rates are fractions (0.001 = 0.1%)."""
 
@@ -60,7 +60,8 @@ class CostAssumptions:
     def resolved(self) -> "CostAssumptions":
         """Copy with instrument defaults filled in for any rate left as None."""
         d = INSTRUMENT_DEFAULTS[self.instrument]
-        return replace(self, **{k: (v if getattr(self, k) is None else getattr(self, k)) for k, v in d.items()})
+        missing = {k: v for k, v in d.items() if getattr(self, k) is None}
+        return replace(self, **missing) if missing else self
 
     def to_dict(self) -> dict:
         out = asdict(self.resolved())

@@ -68,27 +68,26 @@ def weekly_returns(prices: pd.DataFrame, data_end: pd.Timestamp | None = None,
     p["week_start"] = p["date"] - pd.to_timedelta(p["date"].dt.dayofweek, unit="D")  # Monday
     data_end = pd.Timestamp(data_end) if data_end is not None else p["date"].max()
 
-    rows = []
-    for week_start, g in p.groupby("week_start", sort=True):
-        friday = week_start + pd.Timedelta(days=4)
-        week = f"{week_start:%Y-%m-%d}/{week_start + pd.Timedelta(days=6):%Y-%m-%d}"
-        first, last = g.iloc[0], g.iloc[-1]
-        in_week_gaps = g["overnight_gap"].iloc[1:]  # gaps between sessions inside the holding period
-        reason = ""
-        if not (np.isfinite(first["open"]) and first["open"] > 0 and np.isfinite(last["close"]) and last["close"] > 0):
-            reason = "missing entry or exit price"
-        elif (in_week_gaps.abs() > CORPORATE_ACTION_GAP).any() or any(d in ex_dates for d in g["date"].iloc[1:]):
-            reason = "corporate action (split/bonus) inside the week"
-        elif friday > data_end and last["date"] == data_end:
-            reason = "week still in progress"
-        rows.append({
-            "week": week, "week_start": week_start,
-            "entry_date": first["date"], "exit_date": last["date"], "sessions": len(g),
-            "entry_open": float(first["open"]), "exit_close": float(last["close"]),
-            "weekly_return": float(last["close"] / first["open"] - 1) if not reason.startswith("missing") else np.nan,
-            "holiday_shortened": len(g) < 5, "valid": reason == "", "exclude_reason": reason,
-        })
-    return pd.DataFrame(rows)
+    p["after_entry"] = p.groupby("week_start").cumcount() > 0  # sessions after the entry session
+    p["ca_gap"] = p["after_entry"] & ((p["overnight_gap"].abs() > CORPORATE_ACTION_GAP) | p["date"].isin(list(ex_dates)))
+    g = p.groupby("week_start", sort=True)
+    w = pd.DataFrame({"entry_date": g["date"].first(), "exit_date": g["date"].last(), "sessions": g.size(),
+                      "entry_open": g["open"].first().astype(float), "exit_close": g["close"].last().astype(float),
+                      "corporate_action": g["ca_gap"].any()}).reset_index()
+    # first()/last() skip NaN, so take the true first open and last close for the validity check
+    w["entry_open"] = p.loc[g["date"].idxmin(), "open"].to_numpy(dtype=float)
+    w["exit_close"] = p.loc[g["date"].idxmax(), "close"].to_numpy(dtype=float)
+    bad_price = ~(np.isfinite(w["entry_open"]) & (w["entry_open"] > 0) & np.isfinite(w["exit_close"]) & (w["exit_close"] > 0))
+    in_progress = (w["week_start"] + pd.Timedelta(days=4) > data_end) & (w["exit_date"] == data_end)
+    w["exclude_reason"] = np.select([bad_price, w["corporate_action"], in_progress],
+                                    ["missing entry or exit price", "corporate action (split/bonus) inside the week",
+                                     "week still in progress"], "")
+    w["weekly_return"] = np.where(bad_price, np.nan, w["exit_close"] / w["entry_open"] - 1)
+    w["week"] = w["week_start"].dt.strftime("%Y-%m-%d") + "/" + (w["week_start"] + pd.Timedelta(days=6)).dt.strftime("%Y-%m-%d")
+    w["holiday_shortened"] = w["sessions"] < 5
+    w["valid"] = w["exclude_reason"] == ""
+    return w[["week", "week_start", "entry_date", "exit_date", "sessions", "entry_open", "exit_close", "weekly_return",
+              "holiday_shortened", "valid", "exclude_reason"]]
 
 
 def load_prices(symbols: list[str] | None = None) -> dict[str, pd.DataFrame]:

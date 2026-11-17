@@ -57,6 +57,8 @@ def run(signals: pd.DataFrame, kind: str, cfg: BacktestConfig) -> tuple[pd.DataF
     Returns (trades, weeks): every trade with gross/cost/net P&L, and the weekly equity curve
     (weeks with no trade are kept with a 0 return, so all strategies share the same dates).
     """
+    cfg = BacktestConfig(cfg.initial_capital, cfg.allocation, cfg.cost_multiple, cfg.assumptions.resolved(),
+                         cfg.symbols)  # resolve instrument defaults once, not per trade
     sig = signals.copy()
     if cfg.symbols:
         sig = sig[sig["symbol"].isin(cfg.symbols)]

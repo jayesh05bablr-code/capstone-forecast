@@ -19,13 +19,18 @@ def driver_effects(row: pd.Series) -> pd.DataFrame:
     return pd.DataFrame({"driver": names, "effect": [row.get(f"contrib_{d}", 0.0) for d in names]})
 
 
-def render(preds: pd.DataFrame, story: dict) -> str:
-    """Draw the tab and return the stock the user picked (other tabs follow it)."""
+def render(preds: pd.DataFrame, story: dict, symbol: str | None = None) -> str:
+    """Draw the tab and return the stock the user picked (other tabs follow it).
+
+    symbol: when given (the Morning forecast tab already has a stock selector) no second
+    selector is drawn.
+    """
     table = preds[list(TABLE_COLUMNS)].rename(columns=TABLE_COLUMNS)
     st.dataframe(table.sort_values("Gap %", ascending=False), use_container_width=True, hide_index=True)
     st.caption("Low to high is the 10th to 90th percentile of recent out-of-sample errors.")
 
-    symbol = st.selectbox("Explain one stock", preds["symbol"])
+    if symbol is None:
+        symbol = st.selectbox("Explain one stock", preds["symbol"])
     row = preds.set_index("symbol").loc[symbol]
     st.info(row["reason"])
     left, right = st.columns(2)
