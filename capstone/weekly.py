@@ -65,11 +65,13 @@ def weekly_returns(prices: pd.DataFrame, data_end: pd.Timestamp | None = None,
     p["date"] = pd.to_datetime(p["date"])
     p = p.drop_duplicates("date", keep="last")
     p["overnight_gap"] = p["open"] / p["close"].shift(1) - 1
-    p["week"] = p["date"].dt.to_period("W-SUN")
+    p["week_start"] = p["date"] - pd.to_timedelta(p["date"].dt.dayofweek, unit="D")  # Monday
     data_end = pd.Timestamp(data_end) if data_end is not None else p["date"].max()
 
     rows = []
-    for week, g in p.groupby("week", sort=True):
+    for week_start, g in p.groupby("week_start", sort=True):
+        friday = week_start + pd.Timedelta(days=4)
+        week = f"{week_start:%Y-%m-%d}/{week_start + pd.Timedelta(days=6):%Y-%m-%d}"
         first, last = g.iloc[0], g.iloc[-1]
         in_week_gaps = g["overnight_gap"].iloc[1:]  # gaps between sessions inside the holding period
         reason = ""
@@ -77,10 +79,10 @@ def weekly_returns(prices: pd.DataFrame, data_end: pd.Timestamp | None = None,
             reason = "missing entry or exit price"
         elif (in_week_gaps.abs() > CORPORATE_ACTION_GAP).any() or any(d in ex_dates for d in g["date"].iloc[1:]):
             reason = "corporate action (split/bonus) inside the week"
-        elif week.end_time.normalize() - pd.Timedelta(days=2) > data_end and last["date"] == data_end:
+        elif friday > data_end and last["date"] == data_end:
             reason = "week still in progress"
         rows.append({
-            "week": str(week), "week_start": week.start_time.normalize(),
+            "week": week, "week_start": week_start,
             "entry_date": first["date"], "exit_date": last["date"], "sessions": len(g),
             "entry_open": float(first["open"]), "exit_close": float(last["close"]),
             "weekly_return": float(last["close"] / first["open"] - 1) if not reason.startswith("missing") else np.nan,
