@@ -6,6 +6,8 @@ import streamlit as st
 
 from capstone import charts, overnight
 from capstone.paths import SECTOR_LINKS_FILE
+from capstone.charts import CONFIG as CHART_CONFIG
+from capstone.indicators import PERIODS
 
 
 def fx_effect(exposure: float) -> str:
@@ -18,9 +20,10 @@ def render() -> None:
     if fx.empty:
         st.info("No USD/INR data yet. Run fetch_overnight.")
     else:
+        period = st.segmented_control("Period", list(PERIODS), default="6M", key="fx_period") or "6M"
         st.plotly_chart(charts.line(fx, "date", {"USD/INR": "USD/INR"},
                                     "Rupees per US dollar (up means the rupee weakened)", "₹ per $",
-                                    show_days=180), use_container_width=True)
+                                    period=period, prefix="₹"), use_container_width=True, config=CHART_CONFIG)
     st.markdown(
         "**How the rupee affects the open.** When the rupee weakens, exporters that earn dollars "
         "(IT, pharma, metals) earn more in rupees, while importers (oil, autos, FMCG inputs) pay "

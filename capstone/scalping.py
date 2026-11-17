@@ -270,10 +270,12 @@ def backtest(minutes: pd.DataFrame, or_minutes: int, window: int, reward: float,
             if trade is None:
                 if "Long" in allowed and bar["high"] >= hi + buf:
                     e = hi + buf
-                    trade = {"side": "Long", "entry": e, "stop": lo, "target": e + reward * (e - lo)}
+                    trade = {"side": "Long", "entry": e, "stop": lo, "target": e + reward * (e - lo),
+                             "entry_time": bar["datetime"]}
                 elif "Short" in allowed and bar["low"] <= lo - buf:
                     e = lo - buf
-                    trade = {"side": "Short", "entry": e, "stop": hi, "target": e - reward * (hi - e)}
+                    trade = {"side": "Short", "entry": e, "stop": hi, "target": e - reward * (hi - e),
+                             "entry_time": bar["datetime"]}
                 if trade is None:
                     continue
             # Same bar may hit both: count the stop first (conservative).
@@ -288,12 +290,15 @@ def backtest(minutes: pd.DataFrame, or_minutes: int, window: int, reward: float,
                 elif bar["low"] <= trade["target"]:
                     trade["exit"], trade["how"] = trade["target"], "target"
             if "exit" in trade:
+                trade["exit_time"] = bar["datetime"]
                 break
         if trade is None:
-            out.append({"date": day, "gap_pct": gap * 100, "side": "No trade", "result_r": 0.0, "net_pnl": 0.0})
+            out.append({"date": day, "gap_pct": gap * 100, "side": "No trade", "result_r": 0.0, "net_pnl": 0.0,
+                        "or_high": hi, "or_low": lo})
             continue
         if "exit" not in trade:
             trade["exit"], trade["how"] = after["close"].iloc[-1], "time"
+            trade["exit_time"] = after["datetime"].iloc[-1]
         risk = abs(trade["entry"] - trade["stop"])
         qty = int(risk_rupees / risk) if risk > 0 else 0
         sign = 1 if trade["side"] == "Long" else -1
@@ -303,5 +308,6 @@ def backtest(minutes: pd.DataFrame, or_minutes: int, window: int, reward: float,
         out.append({"date": day, "gap_pct": gap * 100, "side": trade["side"], "exit_by": trade["how"],
                     "entry": trade["entry"], "exit": trade["exit"], "qty": qty,
                     "result_r": sign * (trade["exit"] - trade["entry"]) / risk if risk else 0.0,
-                    "net_pnl": net})
+                    "net_pnl": net, "or_high": hi, "or_low": lo, "stop": trade["stop"], "target": trade["target"],
+                    "entry_time": trade["entry_time"], "exit_time": trade["exit_time"]})
     return pd.DataFrame(out)

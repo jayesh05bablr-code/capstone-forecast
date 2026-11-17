@@ -5,7 +5,8 @@ import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
 
-from capstone import company, overnight, tracxn, uploads
+from capstone import charts, company, overnight, tracxn, uploads
+from capstone.charts import CONFIG as CHART_CONFIG
 
 NAN = float("nan")
 LEGEND = dict(orientation="h", y=1.02, x=1, xanchor="right", yanchor="bottom")
@@ -64,9 +65,10 @@ def _financials(comp: str) -> None:
         if col in fin and fin[col].notna().any():
             fig.add_bar(x=fin["period_end"], y=fin[col], name=name, marker_color=color)
     fig.update_xaxes(type="category")
-    fig.update_layout(barmode="group", height=380, title="Results by period (₹ crore)",
-                      hovermode="x unified", margin=MARGIN, legend=LEGEND)
-    st.plotly_chart(fig, use_container_width=True)
+    charts.style(fig, height=400, title="Results by period (₹ crore)")
+    fig.update_layout(barmode="group", bargap=0.25, bargroupgap=0.05)
+    fig.update_yaxes(tickprefix="₹", tickformat=",.0f")
+    st.plotly_chart(fig, use_container_width=True, config=CHART_CONFIG)
     if {"revenue_cr", "net_profit_cr"} <= set(fin.columns):
         fin = fin.assign(net_margin_pct=(fin["net_profit_cr"] / fin["revenue_cr"] * 100).round(1))
     st.dataframe(fin.drop(columns=["symbol"]).iloc[::-1], use_container_width=True, hide_index=True)
@@ -103,9 +105,9 @@ def _ownership(fund: pd.DataFrame) -> None:
             fig.add_bar(x=sh["as_of"], y=sh[col], name=name, marker_color=color,
                         hovertemplate=name + ": %{y:.2f}%<extra></extra>")
     fig.update_xaxes(type="category")
-    fig.update_layout(barmode="stack", height=380, title="Shareholding pattern by filing (%)",
-                      yaxis=dict(range=[0, 100], ticksuffix="%"), margin=MARGIN, legend=LEGEND)
-    st.plotly_chart(fig, use_container_width=True)
+    charts.style(fig, height=400, title="Shareholding pattern by filing (%)")
+    fig.update_layout(barmode="stack", bargap=0.3, yaxis=dict(range=[0, 100], ticksuffix="%"))
+    st.plotly_chart(fig, use_container_width=True, config=CHART_CONFIG)
     st.caption("Rising FII share usually means foreign money is buying in; rising DII share means "
                "Indian mutual funds and insurers are. The model uses these percentages as features.")
 

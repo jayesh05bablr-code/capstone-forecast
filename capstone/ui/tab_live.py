@@ -5,10 +5,11 @@ from __future__ import annotations
 from datetime import timedelta
 
 import pandas as pd
-import plotly.graph_objects as go
 import streamlit as st
+from plotly.subplots import make_subplots
 
-from capstone import live
+from capstone import charts, live
+from capstone.charts import CONFIG as CHART_CONFIG
 from capstone.ui import kite_view
 from capstone.ui.common import DOWN, UP
 from capstone.ui.tab_scalping import settings_from_state
@@ -21,17 +22,22 @@ def _bars(symbols: tuple[str, ...]):
 
 
 def _pressure_chart(today: pd.DataFrame, prev_close: float, sym: str):
+    """Buy/sell volume per minute (top) and the running net (bottom) on a shared time axis."""
     df = live.buy_sell_split(today, prev_close)
-    fig = go.Figure()
-    fig.add_bar(x=df["datetime"], y=df["buy_vol"], name="Buy volume (uptick)", marker_color=UP)
-    fig.add_bar(x=df["datetime"], y=-df["sell_vol"], name="Sell volume (downtick)", marker_color=DOWN)
-    fig.add_scatter(x=df["datetime"], y=(df["buy_vol"] - df["sell_vol"]).cumsum(), name="Running buy − sell",
-                    yaxis="y2", line=dict(color="#555", width=2))
-    fig.update_layout(barmode="relative", height=340, margin=dict(l=10, r=10, t=40, b=10),
-                      title=f"{sym}: buyers vs sellers, minute by minute",
-                      yaxis=dict(title="Shares per minute"),
-                      yaxis2=dict(title="Running total", overlaying="y", side="right", showgrid=False),
-                      legend=dict(orientation="h", y=-0.2))
+    net = (df["buy_vol"] - df["sell_vol"]).cumsum()
+    fig = make_subplots(rows=2, cols=1, shared_xaxes=True, row_heights=[0.62, 0.38], vertical_spacing=0.05)
+    fig.add_bar(x=df["datetime"], y=df["buy_vol"], name="Buy volume (uptick)", marker_color=UP,
+                marker_line_width=0, row=1, col=1, hovertemplate="Bought %{y:,.0f}<extra></extra>")
+    fig.add_bar(x=df["datetime"], y=-df["sell_vol"], name="Sell volume (downtick)", marker_color=DOWN,
+                marker_line_width=0, row=1, col=1, hovertemplate="Sold %{customdata:,.0f}<extra></extra>",
+                customdata=df["sell_vol"])
+    fig.add_scatter(x=df["datetime"], y=net, name="Running buy − sell", mode="lines", fill="tozeroy",
+                    line=dict(color="#2a78d6", width=2), fillcolor="rgba(42,120,214,0.12)", row=2, col=1,
+                    hovertemplate="Net %{y:,.0f}<extra></extra>")
+    charts.style(fig, height=460, title=f"{sym}: buyers vs sellers, minute by minute")
+    fig.update_layout(barmode="relative", bargap=0.05)
+    fig.update_yaxes(title_text="Shares / minute", tickformat=".2s", row=1, col=1)
+    fig.update_yaxes(title_text="Running net", tickformat=".2s", row=2, col=1)
     return fig
 
 
@@ -63,7 +69,7 @@ def _body(preds: pd.DataFrame) -> None:
         m3.metric("Sold on downticks", f"{vs['sell_vol']:,}", f"{vs['sell_pct']}%", delta_color="off")
         m4.metric(f"Last {vs['recent_minutes']} min", live.pressure_word(vs["recent_buy_pct"]),
                   f"{vs['recent_buy_pct']}% buying", delta_color="off")
-        st.plotly_chart(_pressure_chart(today, prev_close, sym), use_container_width=True)
+        st.plotly_chart(_pressure_chart(today, prev_close, sym), use_container_width=True, config=CHART_CONFIG)
     st.caption("How this is measured: every trade has a buyer and a seller, so the split shows who was "
                "more eager. Volume in a minute that closed higher counts as buying, lower as selling, "
                "unchanged is split by where it closed in its range. Yahoo Finance does not give the "

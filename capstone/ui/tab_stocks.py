@@ -4,8 +4,8 @@ from __future__ import annotations
 import pandas as pd
 import streamlit as st
 
-from capstone import charts
 from capstone.explain import DRIVERS, OTHER
+from capstone.ui import price_view
 from capstone.ui.common import raw_prices, signed_bars
 
 TABLE_COLUMNS = {"symbol": "Stock", "india_sector": "Sector", "close": "Last close (₹)",
@@ -49,8 +49,5 @@ def render(preds: pd.DataFrame, story: dict, symbol: str | None = None) -> str:
     if hist is not None:
         fc = {"date": pd.Timestamp(story["next_open"]), "open": row["pred_open"],
               "low": row["pred_open_low"], "high": row["pred_open_high"]}
-        st.plotly_chart(charts.candles(hist, f"{symbol}: daily candles with the expected open (◆)",
-                                       forecast=fc), use_container_width=True)
-        st.caption("Green candle = closed above its open, red = below. Lines are 20- and 50-day "
-                   "moving averages; bars underneath are volume. Use the 1M/3M/6M/1Y buttons or drag to zoom.")
+        price_view.render(symbol, hist, forecast=fc, key="pv")
     return symbol
