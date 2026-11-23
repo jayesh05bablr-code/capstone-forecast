@@ -148,3 +148,10 @@ def test_no_key_means_no_provider(monkeypatch):
     for k in ("GROQ_API_KEY", "GEMINI_API_KEY", "LLM_PROVIDER"):
         monkeypatch.delenv(k, raising=False)
     assert ask_market.provider() is None
+
+
+def test_retired_model_is_replaced():
+    groq = ["whisper-large-v3", "llama-3.1-8b-instant", "openai/gpt-oss-120b", "meta-llama/llama-guard-4-12b"]
+    assert ask_market.pick_model("groq", groq) == "openai/gpt-oss-120b"
+    assert ask_market.pick_model("groq", ["whisper-large-v3", "llama-3.1-8b-instant"]) == "llama-3.1-8b-instant"
+    assert ask_market.pick_model("gemini", ["text-embedding-004", "gemini-2.5-flash"]) == "gemini-2.5-flash"
