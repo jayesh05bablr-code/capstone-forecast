@@ -78,6 +78,7 @@ assumptions to verify with a broker.
 | Backtesting | Unfiltered vs cost-aware strategy vs hold-all: trades, win rate, gross/net P&L, costs, return, drawdown, Sharpe, equity and drawdown curves, trade lists |
 | Monte Carlo | 5,000 block-bootstrap paths: ending capital, drawdown and return distributions, probability of loss, percentiles, backtest vs simulation |
 | Business insights | Forecast direction vs fundamental trend with disagreement flags, executive summary, limitations |
+| Ask the market | Chat that answers with NSE's official data (live quotes, daily history, movers, breadth) and the app's own forecast, through a free Groq or Gemini key |
 | More tools | The earlier tabs: Live, US sectors and India, Rupee, Invest planner, Intraday scalping, Company profile, Upload company data, Download data (Excel) |
 
 Trading assumptions (capital, allocation, number of stocks, brokerage, STT, stamp duty, exchange and DP charges,
@@ -167,11 +168,27 @@ environment variables of the same name.
 | --- | --- |
 | `TWELVEDATA_API_KEY` | US ETFs, ADRs and USD/INR history (full history on a free key) |
 | `EXCHANGERATE_API_KEY` | Latest USD/INR |
-| `TEJ_API_KEY` | NSE prices (optional) |
+| `TEJ_API_KEY` | NSE prices (optional; NSE's own MCP server is used first and needs no key) |
+| `GROQ_API_KEY` or `GEMINI_API_KEY` | Optional: turns on the "Ask the market" chat (free keys at console.groq.com/keys or aistudio.google.com/apikey). `LLM_PROVIDER` (groq/gemini) and `LLM_MODEL` can pick a different model |
 | `ALPHAVANTAGE_API_KEY` | Optional fallback when no Twelve Data key is set |
 
 Check them with `python -m capstone.check_keys` (shows only whether each is set and works).
-If a network blocks outbound calls, allow `api.tejhq.dev`, `api.twelvedata.com` and `api.exchangerate.dev`.
+If a network blocks outbound calls, allow `mcp.nseindia.in`, `api.tejhq.dev`, `api.twelvedata.com` and
+`api.exchangerate.dev` (plus `api.groq.com` or `generativelanguage.googleapis.com` for the chat).
+
+## NSE's official MCP servers (no key, no IP whitelist)
+
+`capstone/nse_mcp.py` talks to NSE's public MCP servers with the standard library only:
+
+| Server | URL | Used for |
+| --- | --- | --- |
+| Bhavcopy | `https://mcp.nseindia.in/bhavcopy/cm/mcp` | Daily OHLCV for training and the previous close (official bhavcopy, about 5 years, unadjusted) |
+| Cash market | `https://mcp.nseindia.in/cmmkt/mcp` | Live tab quotes and NIFTY 50 / NIFTY BANK / INDIA VIX (1-3 minute delay) |
+
+Price order in `fetch_data`: NSE bhavcopy first; TejHQ, then Yahoo Finance fill anything NSE lacks (older than
+5 years, and a gap NSE's server has for most of 2023). For any date NSE has, NSE's row wins. The Live tab shows
+NSE's quotes on top and keeps Yahoo's 1-minute candles for the buyer/seller split and breakout setups. The
+chat's language model only fetches and explains; the forecast always comes from the trained model.
 
 ## Quick start (original step-by-step commands)
 

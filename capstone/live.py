@@ -173,30 +173,85 @@ def trade_status(plan: dict, today: pd.DataFrame, or_minutes: int, window: int) 
     return "Armed", f"{'Buy' if long else 'Short'} if price goes {word} ₹{plan['trigger']:,.2f} before {stop_time:%H:%M}."
 
 
-def live_rows(preds: pd.DataFrame, bars: dict[str, pd.DataFrame], cfg) -> tuple[pd.DataFrame, list[dict]]:
+def _forecast_right(open_: float, prev_close: float, pred_gap) -> str:
+    if abs(open_ / prev_close - 1) < 0.0005:
+        return "Flat"
+    return "Yes" if (open_ - prev_close) * pred_gap > 0 else "No"
+
+
+def nse_quotes(symbols: list[str]) -> dict[str, dict]:
+    """Official near-real-time NSE quotes (1-3 minute delay) from NSE's public MCP server.
+
+    Returns {} if mcp.nseindia.in can't be reached, so the Live tab falls back to Yahoo alone.
+    """
+    from . import nse_mcp
+
+    try:
+        return nse_mcp.quotes(symbols)
+    except Exception:
+        return {}
+
+
+def quote_table(preds: pd.DataFrame, quotes: dict[str, dict]) -> pd.DataFrame:
+    """One row per stock from the official NSE quotes, with the morning forecast beside it."""
+    rows = []
+    for r in preds.itertuples():
+        q = quotes.get(r.symbol)
+        if not q or not q.get("ltp"):
+            continue
+        open_, prev = q.get("open") or 0, q.get("prev_close") or 0
+        rows.append({"Stock": r.symbol, "LTP (₹)": q["ltp"], "Change %": q.get("pct_change"),
+                     "Open (₹)": open_ or None, "High (₹)": q.get("high"), "Low (₹)": q.get("low"),
+                     "Prev close (₹)": prev or None, "Volume": q.get("volume"),
+                     "Forecast open (₹)": round(r.pred_open, 2),
+                     "Forecast direction right?": _forecast_right(open_, prev, r.pred_gap_pct)
+                     if open_ and prev else "",
+                     "As of (IST)": q["as_of"].strftime("%d %b %H:%M") if q.get("as_of") else ""})
+    return pd.DataFrame(rows)
+
+
+def live_rows(preds: pd.DataFrame, bars: dict[str, pd.DataFrame], cfg,
+              quotes: dict[str, dict] | None = None) -> tuple[pd.DataFrame, list[dict]]:
     """One row per stock: LTP, move, buyer/seller split, forecast check and live setup status.
 
-    cfg is a tab_scalping.Settings. Returns the table and the plan rows (for the Kite fields).
+    cfg is a tab_scalping.Settings. `quotes` are official NSE quotes (nse_quotes); when a stock has
+    one, its LTP, open and previous close come from NSE and the minute candles only feed the
+    buyer/seller split and the setups. Returns the table and the plan rows (for the Kite fields).
     """
     rows, plans = [], []
+    quotes = quotes or {}
     for r in preds.itertuples():
         b = bars.get(r.symbol)
         today = session(b)
+        q = quotes.get(r.symbol) or {}
         if today.empty:
-            rows.append({"Stock": r.symbol, "LTP (₹)": None, "Status": "No live data",
-                         "Suggestion": "Yahoo returned no candles for this stock."})
+            if q.get("ltp"):
+                rows.append({"Stock": r.symbol, "LTP (₹)": q["ltp"], "Change %": q.get("pct_change"),
+                             "As of (IST)": q["as_of"].strftime("%d %b %H:%M") if q.get("as_of") else "",
+                             "Source": "NSE", "Status": "No minute candles",
+                             "Suggestion": "NSE price shown; setups need Yahoo's 1-minute candles."})
+            else:
+                rows.append({"Stock": r.symbol, "LTP (₹)": None, "Status": "No live data",
+                             "Suggestion": "Neither NSE nor Yahoo returned a price for this stock."})
             continue
         day = today["datetime"].dt.date.iloc[0]
         older = b[b["datetime"].dt.date < day]
         prev_close = float(older["close"].iloc[-1]) if len(older) else float(r.close)
         ltp = float(today["close"].iloc[-1])
-        vs = volume_summary(today, prev_close)
         open_ = float(today["open"].iloc[0])
+        as_of = today["datetime"].max()
+        source = "Yahoo"
+        q_day = q["as_of"].date() if q.get("as_of") else None
+        if q.get("ltp") and q_day == day:  # same session: prefer NSE's own figures
+            ltp, source = float(q["ltp"]), "NSE"
+            prev_close = float(q.get("prev_close") or prev_close)
+            open_ = float(q.get("open") or open_)
+            as_of = max(as_of, pd.Timestamp(q["as_of"]))
+        vs = volume_summary(today, prev_close)
         row = {"Stock": r.symbol, "LTP (₹)": round(ltp, 2), "Change %": round((ltp / prev_close - 1) * 100, 2),
-               "As of (IST)": today["datetime"].max().strftime("%d %b %H:%M"),
+               "As of (IST)": as_of.strftime("%d %b %H:%M"), "Source": source,
                "Forecast open (₹)": round(r.pred_open, 2), "Actual open (₹)": round(open_, 2),
-               "Forecast direction right?": ("Yes" if (open_ - prev_close) * r.pred_gap_pct > 0 else "No")
-               if abs(open_ / prev_close - 1) >= 0.0005 else "Flat",
+               "Forecast direction right?": _forecast_right(open_, prev_close, r.pred_gap_pct),
                "Buy volume %": vs.get("buy_pct"), "Sell volume %": vs.get("sell_pct"),
                f"Buy % last {vs.get('recent_minutes', 0)} min": vs.get("recent_buy_pct"),
                "Pressure": pressure_word(vs.get("recent_buy_pct"))}

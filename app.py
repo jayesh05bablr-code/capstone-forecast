@@ -10,7 +10,7 @@ import streamlit as st
 
 from capstone import autorun, env, refresh
 from capstone.paths import PROCESSED, SYNTHETIC_FLAG
-from capstone.ui import (assumptions, common, headline, summary, tab_accuracy, tab_backtest, tab_company,
+from capstone.ui import (assumptions, common, headline, summary, tab_accuracy, tab_ask, tab_backtest, tab_company,
                          tab_download, tab_forecast, tab_insights, tab_invest, tab_live, tab_montecarlo, tab_rupee,
                          tab_scalping, tab_sectors, tab_uploads, tab_weekly)
 
@@ -81,9 +81,9 @@ headline.render(preds, story, moves)
 summary.render(compact=True)
 cfg, chosen = assumptions.render(sorted(preds["symbol"]))
 
-(t_forecast, t_accuracy, t_weekly, t_backtest, t_mc, t_insights, t_more) = st.tabs([
+(t_forecast, t_accuracy, t_weekly, t_backtest, t_mc, t_insights, t_ask, t_more) = st.tabs([
     "Morning forecast", "Model accuracy", "Weekly analysis", "Backtesting", "Monte Carlo", "Business insights",
-    "More tools"])
+    "Ask the market", "More tools"])
 
 with t_forecast:
     symbol = tab_forecast.render(preds, story)
@@ -97,6 +97,8 @@ with t_mc:
     tab_montecarlo.render(cfg, bt)
 with t_insights:
     tab_insights.render(preds, story)
+with t_ask:
+    tab_ask.render()
 with t_more:
     (t_live, t_sectors, t_rupee, t_invest, t_scalp, t_company, t_uploads, t_download) = st.tabs(
         ["Live", "US sectors and India", "Rupee", "Invest planner", "Intraday scalping", "Company profile",

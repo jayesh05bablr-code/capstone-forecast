@@ -20,7 +20,8 @@ ENV_FILE = ROOT / ".env"
 
 # Every setting that holds a credential. redact() hides the values of these.
 SECRET_NAMES = ("TWELVEDATA_API_KEY", "EXCHANGERATE_API_KEY", "TEJ_API_KEY", "ALPHAVANTAGE_API_KEY",
-                "SUPABASE_KEY", "SUPABASE_SERVICE_ROLE_KEY", "SUPABASE_ANON_KEY")
+                "SUPABASE_KEY", "SUPABASE_SERVICE_ROLE_KEY", "SUPABASE_ANON_KEY", "GROQ_API_KEY",
+                "GEMINI_API_KEY")
 
 
 def _load_without_dotenv(path) -> None:
