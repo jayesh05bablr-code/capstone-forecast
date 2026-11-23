@@ -78,7 +78,7 @@ assumptions to verify with a broker.
 | Backtesting | Unfiltered vs cost-aware strategy vs hold-all: trades, win rate, gross/net P&L, costs, return, drawdown, Sharpe, equity and drawdown curves, trade lists |
 | Monte Carlo | 5,000 block-bootstrap paths: ending capital, drawdown and return distributions, probability of loss, percentiles, backtest vs simulation |
 | Business insights | Forecast direction vs fundamental trend with disagreement flags, executive summary, limitations |
-| Market flow | Live heat map (Nifty 50 + Next 50 stocks sized by traded value, coloured by % change), stock volume flow (Sankey: market → sector → busiest stocks, measured traded value) and sector flow (Sankey of estimated buying vs selling pressure, see `capstone/market_flow.py`). One shared NSE download per minute for the whole server |
+| Market flow | Live heat map (Nifty 50 + Next 50 stocks sized by traded value, coloured by % change), stock volume flow (market → sector → busiest stocks, measured traded value) and sector flow (sectors → estimated buying / selling pressure → stocks, see `capstone/market_flow.py`). Both flows are animated in the browser (`capstone/ui/flow_canvas.html`: dots = rupees, speed = strength of the move, amber glow = a stock trading 2.5×+ its usual pace this minute, Pause motion button), so the motion costs the server nothing. One shared NSE download per minute for the whole server |
 | Ask the market | Chat that answers with NSE's official data (live quotes, daily history, movers, breadth) and the app's own forecast, through a free Groq or Gemini key |
 | More tools | The earlier tabs: Live, US sectors and India, Rupee, Invest planner, Intraday scalping, Company profile, Upload company data, Download data (Excel) |
 
