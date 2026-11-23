@@ -37,6 +37,7 @@ def test_sector_table_splits_buying_and_selling():
     assert sec.loc["Banks", "buy_cr"] == 100 and sec.loc["Banks", "sell_cr"] == 300
     assert sec.loc["Banks", "pct_change"] == pytest.approx((10 * 100 - 10 * 300) / 400)
     assert sec.loc["IT", "net_flow_cr"] == 10
+    assert sec.loc["IT", "buy_cr"] == 35 and sec.loc["IT", "sell_cr"] == 25  # CCC mid-range: half each
 
 
 def _balanced(data):
@@ -50,10 +51,10 @@ def _balanced(data):
 
 def test_animated_sector_flow_data():
     snap = mf.snapshot(_quotes(), UNI)
-    data = flow_anim.sector_flow_data(snap, mf.sector_table(snap), top=1)
+    data = flow_anim.sector_flow_data(snap, mf.sector_table(snap), top=2)
     labels = [n["label"] for n in data["nodes"]]
-    assert {"Buying pressure", "Selling pressure", "BBB", "AAA"} <= set(labels)
-    assert any(lab.startswith("Other") for lab in labels)  # DDD grouped with top=1
+    assert {"Buyers in control", "Sellers in control", "BBB", "AAA"} <= set(labels)
+    assert any(lab.startswith("Other") for lab in labels)  # CCC and DDD grouped with top=2
     assert data["estimate"] is True
     _balanced(data)
 

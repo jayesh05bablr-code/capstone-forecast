@@ -91,8 +91,8 @@ HOW = """
   colour, the bigger the move. Sector boxes take the traded-value-weighted average of their stocks.
 * **Stock volume flow**: where today's trading is concentrated, from the whole group to each sector to its
   busiest stocks. Band width is traded value in ₹ crore, which NSE reports, so this one is **measured**.
-* **Sector flow**: which sectors had more eager buyers or more eager sellers today, and the stocks with the
-  most of each. This one is an **estimate**, explained below.
+* **Sector flow**: how much of each sector's and each big stock's trading was driven by buyers and how
+  much by sellers today. This one is an **estimate**, explained below.
 
 **What the moving dots mean**
 
@@ -108,17 +108,21 @@ Every share someone buys, someone else sells, so money does not really "flow int
 see is who was more eager. If a stock trades near its high of the day, buyers kept paying up; near its
 low, sellers kept accepting less. So for each stock we take today's traded value and multiply it by where
 the price sits in today's range: +1 at the high, 0 in the middle, −1 at the low. ₹1,000 crore traded with
-the price three quarters of the way up the range counts as +₹500 crore of buying pressure. Adding these
-up by sector gives the sector flow. Traders know this as the "close location value" behind the Chaikin
-money-flow indicator.
+the price three quarters of the way up the range counts as +₹500 crore of net buying pressure. Traders know
+this as the "close location value" behind the Chaikin money-flow indicator.
+
+The sector flow chart shows the same idea as a split: that stock's ₹1,000 crore becomes about ₹750 crore
+"buyers in control" and ₹250 crore "sellers in control" (at the day's high it is all buyers, at the low all
+sellers, in the middle half and half). On a day when nearly everything falls, you still see which sectors
+and stocks held up better.
 
 This can disagree with the day's % change. A sector that opened with a jump and has since slipped back
 from its high is up on the day but shows **selling** pressure, because sellers have had the upper hand
 since the jump. That is information, not a contradiction.
 
 **Limits**: the estimate does not see the order book, large block deals or who the buyers are (funds,
-foreign investors, retail). The middle box in the sector flow is only a meeting point; the chart does not
-claim that money sold in one sector was spent in another. Prices are NSE's own feed, about a minute
+foreign investors, retail). The two middle boxes are totals, not a claim that money sold in one sector
+was spent in another. Prices are NSE's own feed, about a minute
 behind the exchange. Use it to understand the day, not as a trading signal.
 """
 
@@ -144,13 +148,12 @@ def _body() -> None:
     st.success(market_flow.headline(snap, sectors))
 
     up, down = int((snap["pct_change"] > 0).sum()), int((snap["pct_change"] < 0).sum())
-    buy = float(snap.loc[snap["net_flow_cr"] > 0, "net_flow_cr"].sum())
-    sell = float(-snap.loc[snap["net_flow_cr"] < 0, "net_flow_cr"].sum())
+    buy, sell = float(snap["buy_cr"].sum()), float(snap["sell_cr"].sum())
     m1, m2, m3, m4 = st.columns(4)
     m1.metric("Stocks up / down", f"{up} / {down}")
     m2.metric("Traded value today", f"₹{snap['turnover_cr'].sum():,.0f} cr")
-    m3.metric("Buying pressure (est.)", f"₹{buy:,.0f} cr")
-    m4.metric("Selling pressure (est.)", f"₹{sell:,.0f} cr")
+    m3.metric("Buyer-driven trading (est.)", f"₹{buy:,.0f} cr", f"{100 * buy / (buy + sell):.0f}% of all", delta_color="off")
+    m4.metric("Seller-driven trading (est.)", f"₹{sell:,.0f} cr", f"{100 * sell / (buy + sell):.0f}% of all", delta_color="off")
 
     view = st.radio("Chart", ["Heat map", "Sector flow (estimate)", "Stock volume flow"], horizontal=True,
                     key="flow_view", label_visibility="collapsed")
@@ -165,8 +168,8 @@ def _body() -> None:
                            "a little from the heat map, which uses only the stocks on this page.")
                 st.plotly_chart(_sector_index_bars(ix), use_container_width=True, config=CHART_CONFIG)
     elif view == "Sector flow (estimate)":
-        st.markdown("**Sector flow**: which sectors and stocks had more eager buyers or more eager sellers today. "
-                    "*Estimate, see 'How this works' below.*")
+        st.markdown("**Sector flow**: how much of each sector's trading was driven by buyers (blue) or sellers (red) "
+                    "today. *Estimate, see 'How this works' below.*")
         flow_anim.render(flow_anim.sector_flow_data(snap, sectors, market_flow.pace(snap)))
         table = sectors.assign(flow_share=(sectors["flow_share"] * 100).round(0))[
             ["sector", "turnover_cr", "buy_cr", "sell_cr", "net_flow_cr", "flow_share", "pct_change", "stocks", "up",

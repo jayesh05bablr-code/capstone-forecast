@@ -9,7 +9,11 @@ import time
 import pandas as pd
 import streamlit as st
 
-from capstone import autorun, env, refresh
+import codeversion
+
+codeversion.reload_if_changed()  # pick up a new deploy's code without rebooting the app (see codeversion.py)
+
+from capstone import autorun, env, refresh  # noqa: E402
 from capstone.paths import PROCESSED, SYNTHETIC_FLAG
 from capstone.ui import (assumptions, common, glossary, headline, home, tab_accuracy, tab_ask, tab_backtest,
                          tab_company, tab_download, tab_flow, tab_forecast, tab_insights, tab_invest, tab_live, tab_montecarlo,
