@@ -42,6 +42,16 @@ TERMS = {
                    "outcomes rather than one lucky or unlucky path.",
     "Drawdown": "The fall from the highest value so far to a later low. A 20% drawdown means ₹1,00,000 became "
                 "₹80,000 at some point.",
+    "Traded value (turnover)": "The rupees that changed hands in a stock today: shares traded times price. "
+                               "₹1 crore = ₹1,00,00,000.",
+    "Buying / selling pressure (estimate)": "Traded value scaled by where the price sits in today's range: near "
+                                            "the high counts as buying, near the low as selling. Every share "
+                                            "bought is also sold, so this shows who was more eager, not money "
+                                            "entering or leaving.",
+    "Heat map": "A grid of boxes, one per stock, sized by traded value and coloured by % change, so the busiest "
+                "and biggest movers stand out at a glance.",
+    "Sankey (flow) chart": "Bands whose width shows how a total splits into parts, e.g. today's traded value into "
+                           "sectors and then into stocks.",
     "Sharpe ratio": "Return per unit of risk. Above 1 is good; around 0 or negative means the risk was not paid "
                     "for.",
 }

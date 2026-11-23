@@ -78,6 +78,7 @@ assumptions to verify with a broker.
 | Backtesting | Unfiltered vs cost-aware strategy vs hold-all: trades, win rate, gross/net P&L, costs, return, drawdown, Sharpe, equity and drawdown curves, trade lists |
 | Monte Carlo | 5,000 block-bootstrap paths: ending capital, drawdown and return distributions, probability of loss, percentiles, backtest vs simulation |
 | Business insights | Forecast direction vs fundamental trend with disagreement flags, executive summary, limitations |
+| Market flow | Live heat map (Nifty 50 + Next 50 stocks sized by traded value, coloured by % change), stock volume flow (Sankey: market → sector → busiest stocks, measured traded value) and sector flow (Sankey of estimated buying vs selling pressure, see `capstone/market_flow.py`). One shared NSE download per minute for the whole server |
 | Ask the market | Chat that answers with NSE's official data (live quotes, daily history, movers, breadth) and the app's own forecast, through a free Groq or Gemini key |
 | More tools | The earlier tabs: Live, US sectors and India, Rupee, Invest planner, Intraday scalping, Company profile, Upload company data, Download data (Excel) |
 
@@ -246,6 +247,8 @@ in. `tests/test_overnight.py` checks this.
 ## Mappings you can edit
 
 - `data/stock_map.csv`: NSE symbol, Indian sector, US ADR ticker (if any).
+- `data/nifty100_sectors.csv`: the stocks and plain sector names on the Market flow page (Nifty 50 and
+  Nifty Next 50). NSE's feed has no index-membership tool, so update it when NSE rebalances (March, September).
 - `data/sector_links.csv`: Indian sector, matching US sector ETF, rupee exposure (+1 exporter,
   -1 importer) and the plain-language reasons shown on the dashboard.
 
