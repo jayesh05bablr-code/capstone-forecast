@@ -2,6 +2,7 @@
 and where each opening-range setup stands right now, with the Kite settings to act on it."""
 from __future__ import annotations
 
+import time
 from datetime import timedelta
 
 import pandas as pd
@@ -69,6 +70,7 @@ def _pressure_chart(today: pd.DataFrame, prev_close: float, sym: str):
 
 
 def _body(preds: pd.DataFrame) -> None:
+    st.session_state["live_seen"] = time.time()
     cfg = settings_from_state()
     bars, source = _bars(tuple(preds["symbol"]))
     quotes, indices = _nse(tuple(preds["symbol"]))
@@ -120,12 +122,24 @@ def _body(preds: pd.DataFrame) -> None:
         st.info("No setup is waiting for a trigger right now, so there is nothing to set on Kite.")
 
 
+AUTO_REFRESH_MINUTES = 30  # an auto-refresh left running pauses after this, to save server CPU
+
+
 def render(preds: pd.DataFrame) -> None:
     st.warning("Educational tool, not trading advice. Nothing here places orders.")
     c1, c2 = st.columns([1, 2])
     auto = c1.toggle("Auto-refresh", value=True, key="live_auto")
-    every = c2.select_slider("Refresh every", [15, 30, 60, 120], value=30, key="live_every",
+    every = c2.select_slider("Refresh every", [30, 60, 120], value=60, key="live_every",
                              format_func=lambda s: f"{s} seconds")
-    # Outside market hours nothing moves, so check only every 2 minutes (to catch 09:15).
-    run_every = (timedelta(seconds=every if live.market_open() else 120)) if auto else None
+    if time.time() - st.session_state.get("live_seen", 0) > 300:  # (re)opened after a break: start the clock
+        st.session_state["live_started"] = time.time()
+    started = st.session_state["live_started"]
+    if auto and time.time() - started > AUTO_REFRESH_MINUTES * 60:
+        st.info(f"Auto-refresh paused after {AUTO_REFRESH_MINUTES} minutes to save the server's CPU.")
+        if st.button("Resume auto-refresh", key="live_resume"):
+            st.session_state["live_started"] = time.time()
+            st.rerun()
+        auto = False
+    # Outside market hours nothing moves: show the last session once, no auto-refresh.
+    run_every = timedelta(seconds=every) if auto and live.market_open() else None
     st.fragment(run_every=run_every)(_body)(preds)

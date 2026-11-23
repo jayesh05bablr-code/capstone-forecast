@@ -4,7 +4,7 @@ from __future__ import annotations
 import pandas as pd
 import streamlit as st
 
-from capstone import fundamental_check
+from capstone import fundamental_check, uploads
 from capstone.ui import summary
 
 LIMITS = """
@@ -22,9 +22,16 @@ LIMITS = """
 """
 
 
+@st.cache_data(show_spinner=False, max_entries=4)
+def _compare(preds: pd.DataFrame, next_open: str, stamp: float) -> pd.DataFrame:
+    return fundamental_check.compare(preds, pd.Timestamp(next_open))
+
+
 def render(preds: pd.DataFrame, story: dict) -> None:
     st.markdown("### Forecast direction vs company fundamentals")
-    table = fundamental_check.compare(preds, pd.Timestamp(story["next_open"]))
+    files = [uploads.FINANCIALS_FILE, *fundamental_check.COMPANY_DATA_DIR.glob("*.xlsx")]
+    stamp = max((p.stat().st_mtime for p in files if p.exists()), default=0.0)  # recompute when data changes
+    table = _compare(preds, str(story["next_open"]), stamp)
     show = table.rename(columns={"symbol": "Stock", "forecast_gap_pct": "Forecast gap %",
                                  "forecast_direction": "Forecast direction", "trend": "Fundamental trend",
                                  "quarter": "Latest quarter", "revenue_yoy_pct": "Revenue YoY %",
