@@ -29,25 +29,43 @@ class Settings:
 
 def settings_from_state() -> Settings:
     """The settings chosen on this tab (or the defaults before the tab has drawn), for other tabs."""
+    if "scalp_settings" in st.session_state:  # saved by this tab, kept while another tool is shown
+        return st.session_state["scalp_settings"]
     g = st.session_state.get
     return Settings(g("s_cap", 100000), g("s_risk", 0.5) / 100, g("s_rew", 1.5), g("s_lev", 1.0), g("s_or", 5),
                     g("s_win", 20), g("s_buf", 0.05) / 100, g("s_brk", 20.0), g("s_bias", scalping.BIAS_SOURCES[0]))
 
 
+def _restore_widgets() -> None:
+    """Put back the values chosen earlier (or the defaults): Streamlit forgets a widget's value while
+    it is hidden. The widgets below then take their values from here, so they pass no value=."""
+    cfg = st.session_state.get("scalp_settings") or Settings(100000, 0.005, 1.5, 1.0, 5, 20, 0.0005, 20.0,
+                                                               scalping.BIAS_SOURCES[0])
+    saved = {"s_cap": cfg.capital, "s_risk": round(cfg.risk * 100, 4), "s_rew": cfg.reward, "s_lev": cfg.leverage,
+             "s_or": cfg.or_min, "s_win": cfg.window, "s_buf": round(cfg.buffer_pct * 100, 6),
+             "s_brk": cfg.brokerage, "s_bias": cfg.bias_src}
+    for key, value in saved.items():
+        if key not in st.session_state:
+            st.session_state[key] = value
+
+
 def _settings() -> Settings:
+    _restore_widgets()
     c1, c2, c3, c4 = st.columns(4)
-    capital = c1.number_input("Trading capital (₹)", min_value=1000, value=100000, step=5000, key="s_cap")
-    risk = c2.slider("Risk per trade (% of capital)", 0.1, 2.0, 0.5, 0.1, key="s_risk") / 100
-    reward = c3.slider("Target (× risk)", 1.0, 3.0, 1.5, 0.25, key="s_rew")
-    leverage = c4.slider("Leverage (MIS margin)", 1.0, 5.0, 1.0, 0.5, key="s_lev",
+    capital = c1.number_input("Trading capital (₹)", min_value=1000, step=5000, key="s_cap")
+    risk = c2.slider("Risk per trade (% of capital)", 0.1, 2.0, step=0.1, key="s_risk") / 100
+    reward = c3.slider("Target (× risk)", 1.0, 3.0, step=0.25, key="s_rew")
+    leverage = c4.slider("Leverage (MIS margin)", 1.0, 5.0, step=0.5, key="s_lev",
                          help="Exposure allowed per trade as a multiple of capital. 1 = no borrowing.")
     c5, c6, c7, c8 = st.columns(4)
-    or_min = c5.selectbox("Opening range (minutes)", [5, 10, 15], index=0, key="s_or")
-    window = c6.slider("Trade window after 09:15 (minutes)", 10, 60, 20, 5, key="s_win")
-    buffer_pct = c7.number_input("Breakout buffer (%)", 0.0, 0.5, 0.05, 0.01, key="s_buf") / 100
-    brokerage = c8.number_input("Brokerage per order (₹)", 0.0, 50.0, 20.0, 1.0, key="s_brk")
+    or_min = c5.selectbox("Opening range (minutes)", [5, 10, 15], key="s_or")
+    window = c6.slider("Trade window after 09:15 (minutes)", 10, 60, step=5, key="s_win")
+    buffer_pct = c7.number_input("Breakout buffer (%)", 0.0, 0.5, step=0.01, key="s_buf") / 100
+    brokerage = c8.number_input("Brokerage per order (₹)", 0.0, 50.0, step=1.0, key="s_brk")
     bias_src = st.radio("Trade direction", scalping.BIAS_SOURCES, horizontal=True, key="s_bias")
-    return Settings(capital, risk, reward, leverage, or_min, window, buffer_pct, brokerage, bias_src)
+    cfg = Settings(capital, risk, reward, leverage, or_min, window, buffer_pct, brokerage, bias_src)
+    st.session_state["scalp_settings"] = cfg
+    return cfg
 
 
 def _status_row(sym: str, source: str, minutes: int, latest) -> dict:

@@ -103,22 +103,12 @@ with t_insights:
 with t_ask:
     tab_ask.render()
 with t_more:
-    (t_live, t_sectors, t_rupee, t_invest, t_scalp, t_company, t_uploads, t_download) = st.tabs(
-        ["Live", "US sectors and India", "Rupee", "Invest planner", "Intraday scalping", "Company profile",
-         "Upload company data", "Download data"])
-    with t_sectors:
-        tab_sectors.render(preds, moves)
-    with t_rupee:
-        tab_rupee.render()
-    with t_invest:
-        tab_invest.render(preds)
-    with t_uploads:
-        tab_uploads.render(preds, story)
-    with t_download:
-        tab_download.render()
-    with t_scalp:
-        tab_scalping.render(preds)
-    with t_company:
-        tab_company.render(preds)
-    with t_live:  # drawn last so it reads the settings chosen on the Intraday scalping tab
-        tab_live.render(preds)
+    # Only the chosen tool runs (st.tabs would run all eight, and the Live view would keep
+    # refreshing in the background for every open browser, which uses a lot of CPU).
+    tools = {"US sectors and India": lambda: tab_sectors.render(preds, moves), "Rupee": tab_rupee.render,
+             "Live": lambda: tab_live.render(preds), "Invest planner": lambda: tab_invest.render(preds),
+             "Intraday scalping": lambda: tab_scalping.render(preds),
+             "Company profile": lambda: tab_company.render(preds),
+             "Upload company data": lambda: tab_uploads.render(preds, story), "Download data": tab_download.render}
+    pick = st.radio("Tool", list(tools), horizontal=True, key="more_tool", label_visibility="collapsed")
+    tools[pick]()
