@@ -1,5 +1,5 @@
 ---
-title: India Opening Forecast
+title: Pulse8
 emoji: 📈
 colorFrom: blue
 colorTo: green
@@ -8,7 +8,9 @@ app_port: 7860
 pinned: false
 ---
 
-# NSE morning forecast and trading decision support
+# Pulse8: NSE morning forecast and trading decision support
+
+_The market's pulse before the bell._
 
 A Streamlit dashboard for investors and analysts who want a structured, data-driven view of selected NSE stocks
 before the 09:15 IST open: each stock's expected opening gap with a 10th-90th percentile range and its drivers,
@@ -16,7 +18,7 @@ the model's measured accuracy against simple baselines, a weekly trading analysi
 unfiltered vs cost-aware backtests, and a Monte Carlo risk view. **It is a decision-support tool, not a
 profit-generating system or investment advice.**
 
-Live app: https://pri-capstone.streamlit.app
+Live app: https://pulse8.streamlit.app
 
 ## How it works
 

@@ -14,7 +14,7 @@ on:
   workflow_dispatch: {}       # lets you run it by hand from the Actions tab
 
 env:
-  APP_URL: https://pri-capstone.streamlit.app
+  APP_URL: https://pulse8.streamlit.app
 
 jobs:
   visit:
@@ -42,7 +42,7 @@ jobs:
               page.wait_for_timeout(5_000)
               frame = page.frame_locator("iframe").first if page.locator("iframe").count() else page
               try:
-                  frame.get_by_text("India market opening forecast").first.wait_for(timeout=600_000)
+                  frame.get_by_text("Pulse8", exact=True).first.wait_for(timeout=600_000)
                   print("Dashboard is up")
               except Exception as exc:
                   print(f"Dashboard did not finish drawing: {exc}")

@@ -1,6 +1,6 @@
 # Three-minute demo script
 
-Open https://pri-capstone.streamlit.app (or `streamlit run app.py`) before you start, wait for it to finish
+Open https://pulse8.streamlit.app (or `streamlit run app.py`) before you start, wait for it to finish
 loading, and leave the sidebar collapsed. The numbers below are from the 17 Nov 2026 run; say the numbers shown on
 screen if they have changed.
 
