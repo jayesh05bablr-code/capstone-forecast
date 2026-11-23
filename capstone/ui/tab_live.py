@@ -1,5 +1,6 @@
-"""Live tab: official NSE quotes (NSE's public MCP server) and Yahoo 1-minute candles that refresh by themselves, buyer vs seller volume,
-and where each opening-range setup stands right now, with the Kite settings to act on it."""
+"""Live tab: index and stock prices from NSE's own feed, today's 1-minute candles (Yahoo Finance),
+buyer vs seller volume, and where each opening-range setup stands, with the Kite settings to act on it.
+Refreshes by itself during market hours; every download is shared by all visitors for 55 seconds."""
 from __future__ import annotations
 
 import time
@@ -16,37 +17,74 @@ from capstone.ui.common import DOWN, UP
 from capstone.ui.tab_scalping import settings_from_state
 
 
-@st.cache_data(ttl=20, show_spinner=False)
+@st.cache_data(ttl=55, show_spinner=False)
 def _bars(symbols: tuple[str, ...]):
-    """Shared by every visitor for 20 seconds, so many open browsers don't hammer Yahoo."""
+    """Shared by every visitor for 55 seconds (1-minute candles change once a minute anyway)."""
     return live.minute_bars(list(symbols))
 
 
-@st.cache_data(ttl=30, show_spinner=False)
+INDICES = ["NIFTY 50", "NIFTY BANK", "NIFTY IT", "NIFTY FIN SERVICE", "NIFTY MIDCAP 100", "INDIA VIX"]
+
+
+@st.cache_data(ttl=55, show_spinner=False)
 def _nse(symbols: tuple[str, ...]):
-    """NSE refreshes its quotes every 1-3 minutes, so 30 seconds of sharing loses nothing."""
+    """Live quotes for the stocks and the main indices, shared by every visitor for 55 seconds.
+
+    NSE refreshes them every 1-3 minutes, so sharing loses nothing. The indices come from one call.
+    """
     quotes = live.nse_quotes(list(symbols))
     indices = {}
-    if quotes:
+    try:
         from capstone import nse_mcp
-        for name in ("NIFTY 50", "NIFTY BANK", "INDIA VIX"):
-            try:
-                indices[name] = (nse_mcp.index_quote(name) or {}).get("index") or {}
-            except Exception:
-                pass
+        groups = (nse_mcp.call("market", "cm_get_live_indices", {"group": "", "nameFilter": ""}) or {})
+        found = {i["indexName"]: i for g in groups.get("indices", {}).values() for i in g}
+        indices = {name: found[name] for name in INDICES if name in found}
+    except Exception:
+        pass
     return quotes, indices
 
 
+def _strip(items: list[tuple[str, float | None, float | None, bool]], per_row: int = 6) -> None:
+    """A row of price cards: (label, value, % change, rising is bad)."""
+    items = [i for i in items if i[1] is not None]
+    for start in range(0, len(items), per_row):
+        cols = st.columns(per_row)
+        for col, (label, value, pct, inverse) in zip(cols, items[start:start + per_row]):
+            col.metric(label, f"{value:,.2f}", f"{pct:+.2f}%" if pct is not None else None,
+                       delta_color="inverse" if inverse else "normal")
+
+
 def _nse_block(preds: pd.DataFrame, quotes: dict, indices: dict) -> None:
-    st.markdown("**Official NSE prices** (NSE's own feed, 1-3 minutes behind the exchange)")
-    cols = st.columns(len(indices) or 1)
-    for col, (name, ix) in zip(cols, indices.items()):
-        if ix.get("last") is not None:
-            col.metric(name, f"{ix['last']:,.2f}", f"{ix.get('percChange', 0):+.2f}%",
-                       delta_color="inverse" if name == "INDIA VIX" else "normal")
+    st.markdown("**Indices** (NSE's own feed, 1-3 minutes behind the exchange)")
+    _strip([(name, ix.get("last"), ix.get("percChange"), name == "INDIA VIX") for name, ix in indices.items()])
+    st.markdown("**Your 5 stocks**")
+    _strip([(f"{s} (₹)", (quotes.get(s) or {}).get("ltp"), (quotes.get(s) or {}).get("pct_change"), False)
+            for s in preds["symbol"]], per_row=len(preds) or 1)
     table = live.quote_table(preds, quotes)
     if len(table):
-        st.dataframe(table, hide_index=True, use_container_width=True)
+        with st.expander("Open, high, low, volume and forecast check for each stock"):
+            st.dataframe(table, hide_index=True, use_container_width=True)
+
+
+def _candles(sym: str, today: pd.DataFrame, prev_close: float, pred_open: float | None, cfg) -> None:
+    """Today's 1-minute candles for one stock, with the opening range, previous close and forecast open."""
+    if today.empty:
+        st.info(f"No 1-minute candles for {sym} yet today.")
+        return
+    from capstone import intraday
+    day = today["datetime"].dt.date.iloc[0]
+    orr = intraday.opening_range(today, day, cfg.or_min)
+    trade = None
+    if orr is not None:
+        start = pd.Timestamp(day) + pd.Timedelta(hours=9, minutes=15)
+        trade = {"or_high": orr["high"], "or_low": orr["low"], "or_end": start + pd.Timedelta(minutes=cfg.or_min)}
+    fig = charts.intraday_chart(today, f"{sym}: 1-minute candles, {day:%a %d %b}", trade, price_height=460)
+    for label, value, color in (("Prev close", prev_close, "#888"), ("Forecast open", pred_open, "#6250d6")):
+        if value:
+            fig.add_hline(y=value, line=dict(color=color, width=1, dash="dot"), row=1, col=1,
+                          annotation=dict(text=f"{label} {value:,.2f}", font=dict(size=11, color=color)),
+                          annotation_position="bottom left")
+    st.plotly_chart(fig, use_container_width=True, config=CHART_CONFIG)
 
 
 def _pressure_chart(today: pd.DataFrame, prev_close: float, sym: str):
@@ -90,16 +128,18 @@ def _body(preds: pd.DataFrame) -> None:
                    "the breakout setups can't be shown. Yahoo may be blocking the server; try again "
                    "in a few minutes.")
         return
-    st.markdown("**Breakout setups and buyer/seller split** (1-minute candles from Yahoo Finance; "
-                "LTP, open and previous close from NSE where available)")
-    table, plans = live.live_rows(preds, bars, cfg, quotes)
-    st.dataframe(table, hide_index=True, use_container_width=True)
-
-    sym = st.selectbox("Buyers vs sellers for", [s for s in preds["symbol"] if s in bars], key="live_sym")
+    syms = [s for s in preds["symbol"] if s in bars]
+    sym = st.radio("1-minute chart for", syms, horizontal=True, key="live_sym")
     b = bars[sym]
     today = live.session(b)
     older = b[b["datetime"].dt.date < today["datetime"].dt.date.iloc[0]] if len(today) else b
     prev_close = float(older["close"].iloc[-1]) if len(older) else float(today["open"].iloc[0])
+    q = quotes.get(sym) or {}
+    if q.get("prev_close") and q.get("as_of") and len(today) and q["as_of"].date() == today["datetime"].dt.date.iloc[0]:
+        prev_close = float(q["prev_close"])  # NSE's official previous close
+    pred = preds.loc[preds["symbol"] == sym, "pred_open"]
+    _candles(sym, today, prev_close, float(pred.iloc[0]) if len(pred) else None, cfg)
+
     vs = live.volume_summary(today, prev_close)
     if vs:
         m1, m2, m3, m4 = st.columns(4)
@@ -108,13 +148,17 @@ def _body(preds: pd.DataFrame) -> None:
         m3.metric("Sold on downticks", f"{vs['sell_vol']:,}", f"{vs['sell_pct']}%", delta_color="off")
         m4.metric(f"Last {vs['recent_minutes']} min", live.pressure_word(vs["recent_buy_pct"]),
                   f"{vs['recent_buy_pct']}% buying", delta_color="off")
-        st.plotly_chart(_pressure_chart(today, prev_close, sym), use_container_width=True, config=CHART_CONFIG)
+        with st.expander("Buyers vs sellers, minute by minute"):
+            st.plotly_chart(_pressure_chart(today, prev_close, sym), use_container_width=True, config=CHART_CONFIG)
     st.caption("How this is measured: every trade has a buyer and a seller, so the split shows who was "
                "more eager. Volume in a minute that closed higher counts as buying, lower as selling, "
                "unchanged is split by where it closed in its range. Yahoo Finance does not give the "
                "order book (the pending buy and sell quantities in Kite's market depth), so check "
                "Kite's depth for that.")
 
+    st.markdown("**Breakout setups** (settings from the Intraday scalping tool)")
+    table, plans = live.live_rows(preds, bars, cfg, quotes)
+    st.dataframe(table, hide_index=True, use_container_width=True)
     active = [p for p in plans if p["status"] in ("Armed", "In trade") and p["qty"] > 0]
     if active:
         kite_view.render_scalps(active, key="live_kite", ltps={p["symbol"]: p["ltp"] for p in active})
