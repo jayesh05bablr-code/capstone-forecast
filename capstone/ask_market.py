@@ -22,7 +22,7 @@ from . import env, nse_mcp
 from .paths import PROCESSED
 
 PROVIDERS = {
-    "groq": {"name": "Groq", "key": "GROQ_API_KEY", "model": "llama-3.3-70b-versatile",
+    "groq": {"name": "Groq", "key": "GROQ_API_KEY", "model": "openai/gpt-oss-120b",
              "url": "https://api.groq.com/openai/v1/chat/completions",
              "signup": "https://console.groq.com/keys"},
     "gemini": {"name": "Google Gemini", "key": "GEMINI_API_KEY", "model": "gemini-2.5-flash",
@@ -77,7 +77,7 @@ def provider() -> dict | None:
     for name in order:
         p = PROVIDERS[name]
         if env.get(p["key"]):
-            return {**p, "id": name, "model": env.get("LLM_MODEL") or p["model"]}
+            return {**p, "id": name, "model": env.get("LLM_MODEL") or _model_override.get(name) or p["model"]}
     return None
 
 
@@ -138,7 +138,38 @@ def run_tool(name: str, args: dict, owner: dict[str, str]) -> str:
         return json.dumps({"error": str(exc)})
 
 
+# Providers retire models often. When the configured one is gone, pick the first of these that the
+# key can use (from the provider's own model list), else any chat model it lists.
+PREFERRED = {
+    "groq": ["openai/gpt-oss-120b", "moonshotai/kimi-k2-instruct", "meta-llama/llama-4-maverick",
+             "qwen/qwen3-32b", "openai/gpt-oss-20b", "llama-3.3-70b", "llama"],
+    "gemini": ["gemini-2.5-flash", "gemini-flash-latest", "gemini-2.0-flash", "gemini"],
+}
+_SKIP = ("whisper", "tts", "guard", "embed", "vision", "image", "audio", "compound", "orpheus")
+_model_override: dict[str, str] = {}
+
+
+def _list_models(p: dict) -> list[str]:
+    url = p["url"].rsplit("/chat/completions", 1)[0] + "/models"
+    req = urllib.request.Request(url, headers={"Authorization": f"Bearer {env.get(p['key'])}",
+                                               "User-Agent": "nse-capstone/0.3"})
+    with urllib.request.urlopen(req, timeout=30) as resp:
+        data = json.loads(resp.read().decode("utf-8")).get("data", [])
+    return [m["id"].removeprefix("models/") for m in data if m.get("id")]
+
+
+def pick_model(provider_id: str, available: list[str]) -> str | None:
+    usable = [m for m in available if not any(x in m.lower() for x in _SKIP)]
+    for want in PREFERRED.get(provider_id, []):
+        for m in usable:
+            if m == want or m.startswith(want):
+                return m
+    return usable[0] if usable else None
+
+
 def _chat(p: dict, messages: list[dict], tools: list[dict]) -> dict:
+    if p["id"] in _model_override and not env.get("LLM_MODEL"):
+        p = {**p, "model": _model_override[p["id"]]}
     body = {"model": p["model"], "messages": messages, "temperature": 0.2}
     if tools:
         body.update(tools=tools, tool_choice="auto")
@@ -160,6 +191,16 @@ def _chat(p: dict, messages: list[dict], tools: list[dict]) -> dict:
                 continue
             if exc.code == 400 and "tool_use_failed" in detail and attempt < 2:
                 continue  # the model wrote a broken tool call: ask again
+            if ("model_not_found" in detail or "decommissioned" in detail or exc.code == 404) and attempt < 2:
+                try:  # the default model was retired: switch to one this key can use
+                    new = pick_model(p["id"], _list_models(p))
+                except Exception:
+                    new = None
+                if new and new != body["model"]:
+                    _model_override[p["id"]] = new
+                    body["model"] = new
+                    p = {**p, "model": new}
+                    continue
             hint = {401: " The API key is wrong or expired.", 403: " The API key is not allowed.",
                     429: " Free-tier limit reached; wait a minute and ask again."}.get(exc.code, "")
             raise AskError(f"{p['name']} answered HTTP {exc.code}.{hint} {detail}".strip()) from None
