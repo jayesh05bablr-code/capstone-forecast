@@ -23,6 +23,10 @@ What is measured and what is estimated
 
   A stock with ₹1,000 crore traded and the price three quarters of the way up its range gets
   +₹500 crore. Added up by sector, it shows which sectors had buying or selling pressure.
+
+  The sector-flow chart splits the same traded value into a buyer-driven part, value x (1 + position) / 2,
+  and a seller-driven part, the rest (₹750 crore and ₹250 crore in the example). Their difference is the
+  net flow above. Showing both keeps the chart readable on a day when nearly every stock fell.
 """
 from __future__ import annotations
 
@@ -142,6 +146,10 @@ def snapshot(quotes: pd.DataFrame, uni: pd.DataFrame | None = None) -> pd.DataFr
     # No range yet (one trade, or a frozen stock): fall back to the direction of the day's change.
     df["position"] = pos.fillna(np.sign(df["pct_change"].fillna(0))).clip(-1, 1)
     df["net_flow_cr"] = df["turnover_cr"] * df["position"]
+    # The same estimate split two ways: the buyer-driven and seller-driven parts of the traded value.
+    # At the day's high all of it counts as buying, at the low all as selling, in the middle half each.
+    df["buy_cr"] = df["turnover_cr"] * (1 + df["position"]) / 2
+    df["sell_cr"] = df["turnover_cr"] - df["buy_cr"]
     return df.reset_index(drop=True)
 
 
@@ -178,8 +186,7 @@ def sector_table(snap: pd.DataFrame) -> pd.DataFrame:
     """Per sector: traded value, estimated net flow, turnover-weighted % change, stocks up/down."""
     if snap.empty:
         return pd.DataFrame(columns=["sector", "turnover_cr", "net_flow_cr", "buy_cr", "sell_cr", "pct_change", "stocks", "up", "down"])
-    g = snap.assign(w=snap["pct_change"] * snap["turnover_cr"], buy=snap["net_flow_cr"].clip(lower=0),
-                    sell=(-snap["net_flow_cr"]).clip(lower=0),
+    g = snap.assign(w=snap["pct_change"] * snap["turnover_cr"], buy=snap["buy_cr"], sell=snap["sell_cr"],
                     up=(snap["pct_change"] > 0).astype(int), down=(snap["pct_change"] < 0).astype(int))
     out = g.groupby("sector").agg(turnover_cr=("turnover_cr", "sum"), net_flow_cr=("net_flow_cr", "sum"),
                                   buy_cr=("buy", "sum"), sell_cr=("sell", "sum"), w=("w", "sum"), stocks=("symbol", "count"), up=("up", "sum"),
