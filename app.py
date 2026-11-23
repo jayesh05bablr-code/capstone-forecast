@@ -4,6 +4,7 @@ This file only loads the forecast and lays out the page. Each tab lives in its o
 module under capstone/ui/, and the calculations they show live in the capstone package.
 """
 import json
+import time
 
 import pandas as pd
 import streamlit as st
@@ -24,6 +25,8 @@ if not pred_path.exists() and not SYNTHETIC_FLAG.exists():
     with st.status("First start: downloading prices, training the model and making the forecast. "
                    "This takes a few minutes, once.", expanded=True) as box:
         autorun.ensure_fresh(block=True)
+        while autorun.status()["running"]:  # another visitor started it first: wait for theirs
+            time.sleep(3)
         info = autorun.status()
         box.update(label="Done" if info.get("ok") else "First update failed", state="complete" if info.get("ok") else "error")
         if not info.get("ok"):
