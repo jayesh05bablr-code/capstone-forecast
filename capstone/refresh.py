@@ -28,7 +28,11 @@ _lock = threading.Lock()
 
 def input_hashes() -> dict[str, str]:
     """Content fingerprint of each model input file (missing files are left out)."""
-    return {p.name: hashlib.sha256(p.read_bytes()).hexdigest() for p in MODEL_INPUTS if p.exists()}
+    from .features import VERSION  # local import keeps this module light for the dashboard
+
+    out = {p.name: hashlib.sha256(p.read_bytes()).hexdigest() for p in MODEL_INPUTS if p.exists()}
+    out["features_version"] = VERSION
+    return out
 
 
 def save_input_hashes() -> None:

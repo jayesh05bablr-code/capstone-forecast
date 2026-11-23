@@ -20,6 +20,9 @@ MAX_ABS_GAP = 0.20
 # or a holiday: NSE's longest closures are 4-5 days. A return measured across a hole is not an
 # overnight move, so neither the target nor the features of that row are used.
 MAX_SESSION_GAP_DAYS = 7
+# Bump when the feature table changes meaning, so a saved model built from the old table is retrained
+# once (refresh.stale() compares it like an input file).
+VERSION = "2026-11-23 corporate-action adjusted, data holes removed"
 
 PRICE_FEATURES = [
     "ret_1", "ret_5", "ret_20", "intraday_ret", "gap_today", "range_pct",
