@@ -1,4 +1,4 @@
-"""Live tab: prices from Yahoo Finance that refresh by themselves, buyer vs seller volume,
+"""Live tab: official NSE quotes (NSE's public MCP server) and Yahoo 1-minute candles that refresh by themselves, buyer vs seller volume,
 and where each opening-range setup stands right now, with the Kite settings to act on it."""
 from __future__ import annotations
 
@@ -19,6 +19,33 @@ from capstone.ui.tab_scalping import settings_from_state
 def _bars(symbols: tuple[str, ...]):
     """Shared by every visitor for 20 seconds, so many open browsers don't hammer Yahoo."""
     return live.minute_bars(list(symbols))
+
+
+@st.cache_data(ttl=30, show_spinner=False)
+def _nse(symbols: tuple[str, ...]):
+    """NSE refreshes its quotes every 1-3 minutes, so 30 seconds of sharing loses nothing."""
+    quotes = live.nse_quotes(list(symbols))
+    indices = {}
+    if quotes:
+        from capstone import nse_mcp
+        for name in ("NIFTY 50", "NIFTY BANK", "INDIA VIX"):
+            try:
+                indices[name] = (nse_mcp.index_quote(name) or {}).get("index") or {}
+            except Exception:
+                pass
+    return quotes, indices
+
+
+def _nse_block(preds: pd.DataFrame, quotes: dict, indices: dict) -> None:
+    st.markdown("**Official NSE prices** (NSE's own feed, 1-3 minutes behind the exchange)")
+    cols = st.columns(len(indices) or 1)
+    for col, (name, ix) in zip(cols, indices.items()):
+        if ix.get("last") is not None:
+            col.metric(name, f"{ix['last']:,.2f}", f"{ix.get('percChange', 0):+.2f}%",
+                       delta_color="inverse" if name == "INDIA VIX" else "normal")
+    table = live.quote_table(preds, quotes)
+    if len(table):
+        st.dataframe(table, hide_index=True, use_container_width=True)
 
 
 def _pressure_chart(today: pd.DataFrame, prev_close: float, sym: str):
@@ -44,16 +71,26 @@ def _pressure_chart(today: pd.DataFrame, prev_close: float, sym: str):
 def _body(preds: pd.DataFrame) -> None:
     cfg = settings_from_state()
     bars, source = _bars(tuple(preds["symbol"]))
+    quotes, indices = _nse(tuple(preds["symbol"]))
     now = live.now_ist()
     is_open = live.market_open(now)
-    st.caption(f"Updated {now:%d %b %H:%M:%S} IST from {source}. Market "
+    sources = " and ".join((["NSE"] if quotes else []) + ([source] if bars else [])) or "nowhere"
+    st.caption(f"Updated {now:%d %b %H:%M:%S} IST from {sources}. Market "
                f"{'open' if is_open else 'closed: showing the last session'}. "
                f"Settings (capital, risk, range, window) come from the Intraday scalping tab.")
+    if quotes:
+        _nse_block(preds, quotes, indices)
+    else:
+        st.info("NSE's live feed (mcp.nseindia.in) did not answer just now, so prices below are from "
+                "Yahoo Finance only.")
     if not bars:
-        st.warning("No live data from Yahoo Finance right now. If this keeps happening, Yahoo may be "
-                   "blocking the server; try again in a few minutes.")
+        st.warning("No 1-minute candles from Yahoo Finance right now, so the buyer/seller split and "
+                   "the breakout setups can't be shown. Yahoo may be blocking the server; try again "
+                   "in a few minutes.")
         return
-    table, plans = live.live_rows(preds, bars, cfg)
+    st.markdown("**Breakout setups and buyer/seller split** (1-minute candles from Yahoo Finance; "
+                "LTP, open and previous close from NSE where available)")
+    table, plans = live.live_rows(preds, bars, cfg, quotes)
     st.dataframe(table, hide_index=True, use_container_width=True)
 
     sym = st.selectbox("Buyers vs sellers for", [s for s in preds["symbol"] if s in bars], key="live_sym")
