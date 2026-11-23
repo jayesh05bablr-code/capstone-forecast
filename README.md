@@ -20,7 +20,9 @@ Live app: https://pri-capstone.streamlit.app
 
 ## How it works
 
-![How the platform works: data sources feed the model, the model feeds the Streamlit app, and code flows from VS Code through GitHub to Streamlit Cloud](docs/pipeline_diagram.png)
+[![How the platform works: data sources feed the model, the model feeds the Streamlit app, and code flows from VS Code through GitHub to Streamlit Cloud](docs/pipeline_diagram.png)](docs/pipeline_diagram.png)
+
+_Click the picture to open it full size._
 
 **Top:** code is written in VS Code, tested and merged on GitHub, and every merge redeploys the app on Streamlit
 Cloud (API keys in Streamlit Secrets; a GitHub Action keeps the app awake). **Bottom:** official NSE prices, the
