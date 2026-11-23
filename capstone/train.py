@@ -16,7 +16,7 @@ import numpy as np
 import pandas as pd
 from sklearn.ensemble import HistGradientBoostingRegressor
 
-from . import features
+from . import features, refresh
 from .paths import MODELS
 
 N_FOLDS = 5
@@ -113,6 +113,7 @@ def main() -> None:
     joblib.dump({"model": model, "features": cols, "band": band}, MODELS / "gap_model.joblib")
     report.to_csv(MODELS / "walk_forward_report.csv", index=False)
     (MODELS / "band.json").write_text(json.dumps(band, indent=2))
+    refresh.save_input_hashes()  # so a redeploy with the same inputs does not retrain
     print(f"\nSaved model to {MODELS / 'gap_model.joblib'}")
 
     # Four-way comparison (naive, historical average, Linear Regression, this model) on the same
