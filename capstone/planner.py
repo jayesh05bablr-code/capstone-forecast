@@ -18,6 +18,9 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
+from . import costs
+from .indicators import adjust_for_actions, corporate_actions
+
 STRATEGIES = {
     "Equal risk": "Each stock gets money in inverse proportion to how volatile it is.",
     "Favour historical edge": "Tilts money toward stocks whose stop/target plan made money in the "
@@ -34,8 +37,12 @@ def atr(prices: pd.DataFrame, n: int = 14) -> pd.Series:
 
 
 def backtest(prices: pd.DataFrame, stop_mult: float, reward: float, hold_days: int,
-             lookback: int = 500) -> dict:
-    """Win rate and average return per trade of the stop/target plan on past days."""
+             lookback: int = 500, cost: float = 0.0) -> dict:
+    """Win rate and average return per trade of the stop/target plan on past days, after `cost`.
+
+    cost: round-trip cost as a fraction of the trade (charges + spread + slippage), taken off
+    every trade, so a plan that only wins before costs does not look profitable.
+    """
     p = prices.sort_values("date").reset_index(drop=True)
     a = atr(p).shift(1)  # ATR known before the entry day's open
     o, h, l, c = (p[k].to_numpy() for k in ("open", "high", "low", "close"))
@@ -55,7 +62,7 @@ def backtest(prices: pd.DataFrame, stop_mult: float, reward: float, hold_days: i
             if h[j] >= target:
                 exit_price = target
                 break
-        r = exit_price / entry - 1
+        r = exit_price / entry - 1 - cost
         rets.append(r)
         wins += r > 0
     if not rets:
@@ -83,15 +90,20 @@ def _cap(w: pd.Series, max_w: float) -> pd.Series:
 
 
 def plan(preds: pd.DataFrame, prices: dict[str, pd.DataFrame], capital: float, strategy: str,
-         risk_pct: float, stop_mult: float, reward: float, hold_days: int, max_weight: float) -> pd.DataFrame:
+         risk_pct: float, stop_mult: float, reward: float, hold_days: int, max_weight: float,
+         cost: float | None = None) -> pd.DataFrame:
+    if cost is None:  # delivery round trip with the project's default (assumed) charges
+        cost = costs.round_trip_pct(capital / max(len(preds), 1), costs.CostAssumptions("equity_delivery"))
     rows = []
     for _, r in preds.iterrows():
         p = prices.get(r["symbol"])
         if p is None or len(p) < 30:
             continue
+        # Without this a bonus or split looks like a 50% crash, and every plan "hits its stop" that day.
+        p = adjust_for_actions(p, corporate_actions(r["symbol"]))
         a = float(atr(p).iloc[-1])
         vol = float(p["close"].pct_change().tail(20).std())
-        bt = backtest(p, stop_mult, reward, hold_days)
+        bt = backtest(p, stop_mult, reward, hold_days, cost=cost)
         entry = float(r["pred_open"])
         rows.append({"symbol": r["symbol"], "sector": r.get("india_sector", ""), "entry": entry,
                      "pred_gap_pct": r["pred_gap_pct"], "atr": a, "vol": vol,
