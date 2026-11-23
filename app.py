@@ -15,7 +15,7 @@ codeversion.reload_if_changed()  # pick up a new deploy's code without rebooting
 
 from capstone import autorun, env, refresh  # noqa: E402
 from capstone.paths import PROCESSED, SYNTHETIC_FLAG
-from capstone.ui import (assumptions, common, glossary, headline, home, tab_accuracy, tab_ask, tab_backtest,
+from capstone.ui import (assumptions, common, glossary, headline, home, how_it_works, tab_accuracy, tab_ask, tab_backtest,
                          tab_company, tab_download, tab_flow, tab_forecast, tab_insights, tab_invest, tab_live, tab_montecarlo,
                          tab_rupee, tab_scalping, tab_sectors, tab_uploads, tab_weekly)
 
@@ -90,6 +90,7 @@ moves = pd.DataFrame(story["moves"]).set_index("ticker")
 # every click, for every visitor, which is what made the app slow and CPU-throttled.
 PAGES = {
     "Today (start here)": "Plain-language outlook, confidence and what to do",
+    "How it works": "One picture of the data, model and app",
     "Stock details": "Forecast, drivers and price chart for one stock",
     "Model accuracy": "How the model did on data it never saw",
     "Live market": "Index and stock prices during market hours",
@@ -127,6 +128,8 @@ if page in PLAIN:
 symbol = st.session_state.get("forecast_symbol", preds["symbol"].iloc[0])
 if page == "Today (start here)":
     home.render(preds, story, moves)
+elif page == "How it works":
+    how_it_works.render()
 elif page == "Stock details":
     headline.render(preds, story, moves)
     tab_forecast.render(preds, story)

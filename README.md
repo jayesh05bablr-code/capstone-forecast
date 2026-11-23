@@ -18,6 +18,16 @@ profit-generating system or investment advice.**
 
 Live app: https://pri-capstone.streamlit.app
 
+## How it works
+
+![How the platform works: data sources feed the model, the model feeds the Streamlit app, and code flows from VS Code through GitHub to Streamlit Cloud](docs/pipeline_diagram.png)
+
+**Top:** code is written in VS Code, tested and merged on GitHub, and every merge redeploys the app on Streamlit
+Cloud (API keys in Streamlit Secrets; a GitHub Action keeps the app awake). **Bottom:** official NSE prices, the
+overnight US market and rupee, and company fundamentals feed a scikit-learn model that forecasts each stock's next
+opening price with a likely range; Supabase logs every forecast against the actual open. Snowflake (dotted) is
+future scope only. The same picture is on the app's **How it works** page.
+
 ## Executive summary
 
 **Business problem.** Before 09:15 IST an investor has to digest what happened overnight (the US close,
