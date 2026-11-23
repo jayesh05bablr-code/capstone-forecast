@@ -89,7 +89,7 @@ def fetch_quotes(symbols: list[str]) -> pd.DataFrame:
     return df
 
 
-_latest: dict = {"quotes": None, "at": 0.0, "busy": False}
+_latest: dict = {"quotes": None, "at": 0.0, "busy": False, "prev": None, "prev_at": 0.0}
 _latest_lock = threading.Lock()
 
 
@@ -112,6 +112,7 @@ def latest_quotes(max_age: float = 60) -> tuple[pd.DataFrame | None, float]:
             fresh = fetch_quotes(list(universe()["symbol"]))
             with _latest_lock:
                 if len(fresh) or _latest["quotes"] is None:
+                    _latest["prev"], _latest["prev_at"] = _latest["quotes"], _latest["at"]
                     _latest["quotes"], _latest["at"] = fresh, time.time()
         finally:
             _latest["busy"] = False
@@ -144,65 +145,48 @@ def snapshot(quotes: pd.DataFrame, uni: pd.DataFrame | None = None) -> pd.DataFr
     return df.reset_index(drop=True)
 
 
+def pace(snap: pd.DataFrame, prev: pd.DataFrame | None = None, now_minutes: float | None = None,
+         seconds: float | None = None) -> pd.Series:
+    """How fast each stock traded in the last download interval compared with its average pace today.
+
+    2.0 means it traded twice as many rupees per minute as its average minute so far today. Uses the
+    previous one-minute download, so it is empty until the page has been open for two downloads.
+    Both numbers are reported by NSE (no estimate involved).
+    """
+    if prev is None:
+        prev, seconds = _latest.get("prev"), _latest.get("at", 0) - _latest.get("prev_at", 0)
+    if prev is None or prev.empty or snap.empty:
+        return pd.Series(dtype=float)
+    if "as_of" in prev and prev["as_of"].notna().any() and snap["as_of"].notna().any():
+        seconds = (snap["as_of"].max() - prev["as_of"].max()).total_seconds()  # NSE's own clock
+    if not seconds or seconds < 30:
+        return pd.Series(dtype=float)
+    if now_minutes is None:
+        t = snap["as_of"].max()
+        now_minutes = (t.hour * 60 + t.minute) - (9 * 60 + 15) if pd.notna(t) else 0
+    if now_minutes < 5:
+        return pd.Series(dtype=float)
+    before = prev.set_index("symbol")["turnover_cr"]
+    now = snap.set_index("symbol")["turnover_cr"]
+    delta = (now - before.reindex(now.index)).clip(lower=0)
+    per_min_now = delta / (seconds / 60)
+    per_min_avg = now / now_minutes
+    return (per_min_now / per_min_avg.where(per_min_avg > 0)).dropna()
+
+
 def sector_table(snap: pd.DataFrame) -> pd.DataFrame:
     """Per sector: traded value, estimated net flow, turnover-weighted % change, stocks up/down."""
     if snap.empty:
-        return pd.DataFrame(columns=["sector", "turnover_cr", "net_flow_cr", "pct_change", "stocks", "up", "down"])
-    g = snap.assign(w=snap["pct_change"] * snap["turnover_cr"],
+        return pd.DataFrame(columns=["sector", "turnover_cr", "net_flow_cr", "buy_cr", "sell_cr", "pct_change", "stocks", "up", "down"])
+    g = snap.assign(w=snap["pct_change"] * snap["turnover_cr"], buy=snap["net_flow_cr"].clip(lower=0),
+                    sell=(-snap["net_flow_cr"]).clip(lower=0),
                     up=(snap["pct_change"] > 0).astype(int), down=(snap["pct_change"] < 0).astype(int))
     out = g.groupby("sector").agg(turnover_cr=("turnover_cr", "sum"), net_flow_cr=("net_flow_cr", "sum"),
-                                  w=("w", "sum"), stocks=("symbol", "count"), up=("up", "sum"),
+                                  buy_cr=("buy", "sum"), sell_cr=("sell", "sum"), w=("w", "sum"), stocks=("symbol", "count"), up=("up", "sum"),
                                   down=("down", "sum")).reset_index()
     out["pct_change"] = out["w"] / out["turnover_cr"]
     out["flow_share"] = out["net_flow_cr"] / out["turnover_cr"]  # -1..+1: how one-sided the sector was
     return out.drop(columns="w").sort_values("net_flow_cr", ascending=False).reset_index(drop=True)
-
-
-def rotation_links(sectors: pd.DataFrame, hub: str = "Nifty 100") -> dict:
-    """Sankey for sector rotation: sectors under selling pressure -> market -> sectors under buying.
-
-    Widths are the estimated net flow in ₹ crore. The hub is only a meeting point: the chart does not
-    claim that money sold in one sector was spent in another, only where pressure was each way.
-    """
-    out_ = sectors[sectors["net_flow_cr"] < 0].sort_values("net_flow_cr")
-    in_ = sectors[sectors["net_flow_cr"] > 0].sort_values("net_flow_cr", ascending=False)
-    labels = [f"{s} " for s in out_["sector"]] + [hub] + list(in_["sector"])  # trailing space keeps names unique
-    side = ["out"] * len(out_) + ["hub"] + ["in"] * len(in_)
-    h = len(out_)
-    source, target, value = [], [], []
-    for i, v in enumerate(out_["net_flow_cr"]):
-        source.append(i), target.append(h), value.append(-v)
-    for j, v in enumerate(in_["net_flow_cr"]):
-        source.append(h), target.append(h + 1 + j), value.append(v)
-    return {"labels": labels, "side": side, "source": source, "target": target, "value": value,
-            "sold_cr": float(-out_["net_flow_cr"].sum()), "bought_cr": float(in_["net_flow_cr"].sum())}
-
-
-def volume_links(snap: pd.DataFrame, top: int = 30, hub: str = "Nifty 100") -> dict:
-    """Sankey for traded value: market -> sector -> its most traded stocks (the rest as 'other').
-
-    Widths are traded value in ₹ crore, which NSE reports, so this chart is measured, not estimated.
-    """
-    sectors = snap.groupby("sector")["turnover_cr"].sum().sort_values(ascending=False)
-    keep = set(snap.nlargest(top, "turnover_cr")["symbol"])
-    labels, kind, pct = [hub], ["hub"], [None]
-    source, target, value = [], [], []
-    for sec, tv in sectors.items():
-        si = len(labels)
-        labels.append(sec), kind.append("sector")
-        part = snap[snap["sector"] == sec]
-        pct.append(float((part["pct_change"] * part["turnover_cr"]).sum() / tv) if tv else 0.0)
-        source.append(0), target.append(si), value.append(float(tv))
-        shown = part[part["symbol"].isin(keep)].sort_values("turnover_cr", ascending=False)
-        for _, r in shown.iterrows():
-            labels.append(r["symbol"]), kind.append("stock"), pct.append(float(r["pct_change"]))
-            source.append(si), target.append(len(labels) - 1), value.append(float(r["turnover_cr"]))
-        rest = part[~part["symbol"].isin(keep)]
-        if len(rest):
-            labels.append(f"Other {sec} ({len(rest)})"), kind.append("other")
-            pct.append(float((rest["pct_change"] * rest["turnover_cr"]).sum() / rest["turnover_cr"].sum()))
-            source.append(si), target.append(len(labels) - 1), value.append(float(rest["turnover_cr"].sum()))
-    return {"labels": labels, "kind": kind, "pct": pct, "source": source, "target": target, "value": value}
 
 
 def headline(snap: pd.DataFrame, sectors: pd.DataFrame) -> str:

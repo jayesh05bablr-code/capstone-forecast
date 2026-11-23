@@ -8,7 +8,7 @@ import pandas as pd
 import pytest
 
 from capstone import market_flow as mf
-from capstone.ui import tab_flow
+from capstone.ui import flow_anim, tab_flow
 
 UNI = pd.DataFrame({"symbol": ["AAA", "BBB", "CCC", "DDD"], "name": list("abcd"),
                     "sector": ["Banks", "Banks", "IT", "IT"], "index": "NIFTY 50"})
@@ -31,36 +31,57 @@ def test_flow_estimate_uses_position_in_days_range():
     assert s.loc["DDD", "position"] == 1  # no range yet: direction of the day's change
 
 
-def test_sector_table_and_rotation():
+def test_sector_table_splits_buying_and_selling():
     sec = mf.sector_table(mf.snapshot(_quotes(), UNI)).set_index("sector")
     assert sec.loc["Banks", "turnover_cr"] == 400 and sec.loc["Banks", "net_flow_cr"] == -200
+    assert sec.loc["Banks", "buy_cr"] == 100 and sec.loc["Banks", "sell_cr"] == 300
     assert sec.loc["Banks", "pct_change"] == pytest.approx((10 * 100 - 10 * 300) / 400)
     assert sec.loc["IT", "net_flow_cr"] == 10
-    links = mf.rotation_links(sec.reset_index().sort_values("net_flow_cr", ascending=False), hub="All")
-    assert links["side"] == ["out", "hub", "in"]
-    assert links["value"] == [200, 10] and links["sold_cr"] == 200 and links["bought_cr"] == 10
 
 
-def test_volume_links_add_up_to_turnover():
-    snap = mf.snapshot(_quotes(), UNI)
-    links = mf.volume_links(snap, top=2, hub="All")
-    from_hub = sum(v for s, v in zip(links["source"], links["value"]) if s == 0)
-    assert from_hub == pytest.approx(snap["turnover_cr"].sum())
-    assert {"BBB", "AAA"} <= set(links["labels"]) and any(lab.startswith("Other IT") for lab in links["labels"])
-    for i, kind in enumerate(links["kind"]):  # each sector passes on exactly what it receives
-        if kind == "sector":
-            inflow = sum(v for t, v in zip(links["target"], links["value"]) if t == i)
-            outflow = sum(v for s, v in zip(links["source"], links["value"]) if s == i)
+def _balanced(data):
+    """Every middle node passes on what it receives, so the bands line up."""
+    for i, n in enumerate(data["nodes"]):
+        if n["col"] == 1:
+            inflow = sum(l["value"] for l in data["links"] if l["target"] == i)
+            outflow = sum(l["value"] for l in data["links"] if l["source"] == i)
             assert inflow == pytest.approx(outflow)
 
 
-def test_charts_build_and_headline():
+def test_animated_sector_flow_data():
     snap = mf.snapshot(_quotes(), UNI)
-    sec = mf.sector_table(snap)
+    data = flow_anim.sector_flow_data(snap, mf.sector_table(snap), top=1)
+    labels = [n["label"] for n in data["nodes"]]
+    assert {"Buying pressure", "Selling pressure", "BBB", "AAA"} <= set(labels)
+    assert any(lab.startswith("Other") for lab in labels)  # DDD grouped with top=1
+    assert data["estimate"] is True
+    _balanced(data)
+
+
+def test_animated_volume_flow_data_adds_up():
+    snap = mf.snapshot(_quotes(), UNI)
+    data = flow_anim.volume_flow_data(snap, top=2)
+    from_hub = sum(l["value"] for l in data["links"] if l["source"] == 0)
+    assert from_hub == pytest.approx(snap["turnover_cr"].sum())
+    assert data["estimate"] is False
+    _balanced(data)
+
+
+def test_minute_pace_and_surge_glow():
+    snap = mf.snapshot(_quotes(), UNI)
+    prev = _quotes().assign(turnover_cr=[99, 299, 40, 10], as_of=pd.Timestamp("2026-11-23 11:59"))
+    # 165 minutes since 09:15: AAA's average is 100/165 per minute and its last minute 1, about 1.65x
+    pace = mf.pace(snap, prev)
+    assert pace["AAA"] == pytest.approx(1 / (100 / 165))
+    assert pace["CCC"] > 2.5 and pace["DDD"] == 0
+    data = flow_anim.volume_flow_data(snap, pace, top=4)
+    assert {n["label"] for n in data["nodes"] if n.get("surge")} == {"CCC"}
+
+
+def test_heat_map_and_headline():
+    snap = mf.snapshot(_quotes(), UNI)
     assert tab_flow.heat_map(snap).data[0].type == "treemap"
-    assert tab_flow.sector_flow(mf.rotation_links(sec)).data[0].type == "sankey"
-    assert tab_flow.volume_flow(mf.volume_links(snap)).data[0].type == "sankey"
-    text = mf.headline(snap, sec)
+    text = mf.headline(snap, mf.sector_table(snap))
     assert "3 of 4" in text and "Banks" in text
 
 
