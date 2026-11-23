@@ -1,0 +1,110 @@
+symbol,name,sector,index
+ADANIENT,Adani Enterprises,Metals & Mining,NIFTY 50
+ADANIPORTS,Adani Ports,Infra & Capital Goods,NIFTY 50
+APOLLOHOSP,Apollo Hospitals,Pharma & Health,NIFTY 50
+ASIANPAINT,Asian Paints,Consumer & Retail,NIFTY 50
+AXISBANK,Axis Bank,Banks,NIFTY 50
+BAJAJ-AUTO,Bajaj Auto,Autos,NIFTY 50
+BAJFINANCE,Bajaj Finance,Finance & Insurance,NIFTY 50
+BAJAJFINSV,Bajaj Finserv,Finance & Insurance,NIFTY 50
+BEL,Bharat Electronics,Infra & Capital Goods,NIFTY 50
+BHARTIARTL,Bharti Airtel,Telecom & Internet,NIFTY 50
+CIPLA,Cipla,Pharma & Health,NIFTY 50
+COALINDIA,Coal India,Metals & Mining,NIFTY 50
+DRREDDY,Dr Reddy's,Pharma & Health,NIFTY 50
+EICHERMOT,Eicher Motors,Autos,NIFTY 50
+ETERNAL,Eternal (Zomato),Telecom & Internet,NIFTY 50
+GRASIM,Grasim,Cement & Materials,NIFTY 50
+HCLTECH,HCL Tech,IT,NIFTY 50
+HDFCBANK,HDFC Bank,Banks,NIFTY 50
+HDFCLIFE,HDFC Life,Finance & Insurance,NIFTY 50
+HINDALCO,Hindalco,Metals & Mining,NIFTY 50
+HINDUNILVR,Hindustan Unilever,FMCG,NIFTY 50
+ICICIBANK,ICICI Bank,Banks,NIFTY 50
+INDIGO,IndiGo,Infra & Capital Goods,NIFTY 50
+INFY,Infosys,IT,NIFTY 50
+ITC,ITC,FMCG,NIFTY 50
+JIOFIN,Jio Financial,Finance & Insurance,NIFTY 50
+JSWSTEEL,JSW Steel,Metals & Mining,NIFTY 50
+KOTAKBANK,Kotak Bank,Banks,NIFTY 50
+LT,Larsen & Toubro,Infra & Capital Goods,NIFTY 50
+M&M,Mahindra & Mahindra,Autos,NIFTY 50
+MARUTI,Maruti Suzuki,Autos,NIFTY 50
+MAXHEALTH,Max Healthcare,Pharma & Health,NIFTY 50
+NESTLEIND,Nestle India,FMCG,NIFTY 50
+NTPC,NTPC,Power,NIFTY 50
+ONGC,ONGC,Oil & Gas,NIFTY 50
+POWERGRID,Power Grid,Power,NIFTY 50
+RELIANCE,Reliance Industries,Oil & Gas,NIFTY 50
+SBILIFE,SBI Life,Finance & Insurance,NIFTY 50
+SBIN,State Bank of India,Banks,NIFTY 50
+SHRIRAMFIN,Shriram Finance,Finance & Insurance,NIFTY 50
+SUNPHARMA,Sun Pharma,Pharma & Health,NIFTY 50
+TATACONSUM,Tata Consumer,FMCG,NIFTY 50
+TMPV,Tata Motors (passenger),Autos,NIFTY 50
+TATASTEEL,Tata Steel,Metals & Mining,NIFTY 50
+TCS,TCS,IT,NIFTY 50
+TECHM,Tech Mahindra,IT,NIFTY 50
+TITAN,Titan,Consumer & Retail,NIFTY 50
+TRENT,Trent,Consumer & Retail,NIFTY 50
+ULTRACEMCO,UltraTech Cement,Cement & Materials,NIFTY 50
+WIPRO,Wipro,IT,NIFTY NEXT 50
+ABB,ABB India,Infra & Capital Goods,NIFTY NEXT 50
+ADANIENSOL,Adani Energy Solutions,Power,NIFTY NEXT 50
+ADANIGREEN,Adani Green,Power,NIFTY NEXT 50
+ADANIPOWER,Adani Power,Power,NIFTY NEXT 50
+AMBUJACEM,Ambuja Cements,Cement & Materials,NIFTY NEXT 50
+BAJAJHLDNG,Bajaj Holdings,Finance & Insurance,NIFTY NEXT 50
+BAJAJHFL,Bajaj Housing Finance,Finance & Insurance,NIFTY NEXT 50
+BANKBARODA,Bank of Baroda,Banks,NIFTY NEXT 50
+BPCL,BPCL,Oil & Gas,NIFTY NEXT 50
+BRITANNIA,Britannia,FMCG,NIFTY NEXT 50
+BOSCHLTD,Bosch,Autos,NIFTY NEXT 50
+CANBK,Canara Bank,Banks,NIFTY NEXT 50
+CGPOWER,CG Power,Infra & Capital Goods,NIFTY NEXT 50
+CHOLAFIN,Cholamandalam Finance,Finance & Insurance,NIFTY NEXT 50
+DABUR,Dabur,FMCG,NIFTY NEXT 50
+DIVISLAB,Divi's Labs,Pharma & Health,NIFTY NEXT 50
+DLF,DLF,Realty,NIFTY NEXT 50
+DMART,Avenue Supermarts (DMart),Consumer & Retail,NIFTY NEXT 50
+GAIL,GAIL,Oil & Gas,NIFTY NEXT 50
+GODREJCP,Godrej Consumer,FMCG,NIFTY NEXT 50
+HAL,Hindustan Aeronautics,Infra & Capital Goods,NIFTY NEXT 50
+HAVELLS,Havells,Consumer & Retail,NIFTY NEXT 50
+HINDZINC,Hindustan Zinc,Metals & Mining,NIFTY NEXT 50
+HYUNDAI,Hyundai Motor India,Autos,NIFTY NEXT 50
+ICICIGI,ICICI Lombard,Finance & Insurance,NIFTY NEXT 50
+INDHOTEL,Indian Hotels,Consumer & Retail,NIFTY NEXT 50
+IOC,Indian Oil,Oil & Gas,NIFTY NEXT 50
+IRFC,IRFC,Finance & Insurance,NIFTY NEXT 50
+JINDALSTEL,Jindal Steel,Metals & Mining,NIFTY NEXT 50
+JSWENERGY,JSW Energy,Power,NIFTY NEXT 50
+LICI,LIC,Finance & Insurance,NIFTY NEXT 50
+LODHA,Lodha Developers,Realty,NIFTY NEXT 50
+LTM,LTIMindtree,IT,NIFTY NEXT 50
+MAZDOCK,Mazagon Dock,Infra & Capital Goods,NIFTY NEXT 50
+MOTHERSON,Samvardhana Motherson,Autos,NIFTY NEXT 50
+NAUKRI,Info Edge (Naukri),Telecom & Internet,NIFTY NEXT 50
+PFC,Power Finance Corp,Finance & Insurance,NIFTY NEXT 50
+PIDILITIND,Pidilite,Cement & Materials,NIFTY NEXT 50
+PNB,Punjab National Bank,Banks,NIFTY NEXT 50
+RECLTD,REC,Finance & Insurance,NIFTY NEXT 50
+SHREECEM,Shree Cement,Cement & Materials,NIFTY NEXT 50
+SIEMENS,Siemens,Infra & Capital Goods,NIFTY NEXT 50
+SOLARINDS,Solar Industries,Infra & Capital Goods,NIFTY NEXT 50
+SWIGGY,Swiggy,Telecom & Internet,NIFTY NEXT 50
+TATAPOWER,Tata Power,Power,NIFTY NEXT 50
+TORNTPHARM,Torrent Pharma,Pharma & Health,NIFTY NEXT 50
+TVSMOTOR,TVS Motor,Autos,NIFTY NEXT 50
+UNITDSPR,United Spirits,FMCG,NIFTY NEXT 50
+VBL,Varun Beverages,FMCG,NIFTY NEXT 50
+VEDL,Vedanta,Metals & Mining,NIFTY NEXT 50
+ZYDUSLIFE,Zydus Lifesciences,Pharma & Health,NIFTY NEXT 50
+HDFCAMC,HDFC AMC,Finance & Insurance,NIFTY NEXT 50
+MUTHOOTFIN,Muthoot Finance,Finance & Insurance,NIFTY NEXT 50
+ENRIN,Siemens Energy India,Infra & Capital Goods,NIFTY NEXT 50
+UNIONBANK,Union Bank of India,Banks,NIFTY NEXT 50
+VAML,Vedanta Aluminium,Metals & Mining,NIFTY NEXT 50
+POLYCAB,Polycab,Infra & Capital Goods,NIFTY NEXT 50
+TMCV,Tata Motors (commercial),Autos,NIFTY NEXT 50
+IDEA,Vodafone Idea,Telecom & Internet,NIFTY NEXT 50

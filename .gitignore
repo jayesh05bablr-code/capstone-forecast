@@ -20,6 +20,7 @@ data/*.csv
 !data/sector_links.csv
 !data/stock_map.csv
 !data/corporate_actions.csv
+!data/nifty100_sectors.csv
 
 # Streamlit Cloud keys (paste them in the Secrets box instead)
 .streamlit/secrets.toml

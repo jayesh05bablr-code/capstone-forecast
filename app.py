@@ -12,7 +12,7 @@ import streamlit as st
 from capstone import autorun, env, refresh
 from capstone.paths import PROCESSED, SYNTHETIC_FLAG
 from capstone.ui import (assumptions, common, glossary, headline, home, tab_accuracy, tab_ask, tab_backtest,
-                         tab_company, tab_download, tab_forecast, tab_insights, tab_invest, tab_live, tab_montecarlo,
+                         tab_company, tab_download, tab_flow, tab_forecast, tab_insights, tab_invest, tab_live, tab_montecarlo,
                          tab_rupee, tab_scalping, tab_sectors, tab_uploads, tab_weekly)
 
 st.set_page_config(page_title="India Opening Forecast", layout="wide", initial_sidebar_state="expanded")
@@ -89,6 +89,7 @@ PAGES = {
     "Stock details": "Forecast, drivers and price chart for one stock",
     "Model accuracy": "How the model did on data it never saw",
     "Live market": "Index and stock prices during market hours",
+    "Market flow": "Heat map, sector flow and stock volume flow",
     "Weekly analysis": "Weekly moves versus trading costs",
     "Backtesting": "What trading the weekly signal would have done",
     "Monte Carlo": "Range of possible outcomes of that strategy",
@@ -107,6 +108,8 @@ PLAIN = {
     "Stock details": "The forecast for one stock, what pushed it up or down, and its price history.",
     "Model accuracy": "Every forecast here was made on days the model had not seen. If the trained model's "
                       "average miss is not clearly below the naive guess (open = yesterday's close), it has no edge.",
+    "Market flow": "Which sectors and stocks are drawing today's trading, and whether buyers or sellers had "
+                   "the upper hand. Box and band sizes are real traded money; the buying/selling split is an estimate.",
     "Weekly analysis": "Would buying on Monday's open and selling on Friday's close have beaten the trading costs? "
                        "Bars below the cost line lost money after charges.",
     "Backtesting": "A replay of trading the weekly forecast with every charge paid. A negative result means the "
@@ -127,6 +130,8 @@ elif page == "Model accuracy":
     tab_accuracy.render(symbol)  # follows the stock picked on Stock details
 elif page == "Live market":
     tab_live.render(preds)
+elif page == "Market flow":
+    tab_flow.render()
 elif page in ("Weekly analysis", "Backtesting", "Monte Carlo"):
     cfg, chosen = assumptions.render(sorted(preds["symbol"]))
     if page == "Weekly analysis":
