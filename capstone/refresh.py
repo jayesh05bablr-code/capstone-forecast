@@ -6,9 +6,12 @@ running Streamlit and also returned, so the dashboard can show it.
 """
 from __future__ import annotations
 
+import hashlib
+import json
 import os
 import subprocess
 import sys
+import threading
 
 from .env import redact
 from .paths import DATA, FUNDAMENTALS_FILE, MODELS, PROCESSED, ROOT
@@ -19,14 +22,38 @@ PREDICTIONS_FILE = PROCESSED / "predictions.csv"
 MODEL_INPUTS = [FUNDAMENTALS_FILE, DATA / "stock_map.csv", DATA / "sector_links.csv"]
 
 
+INPUTS_FILE = MODELS / "model_inputs.json"
+_lock = threading.Lock()
+
+
+def input_hashes() -> dict[str, str]:
+    """Content fingerprint of each model input file (missing files are left out)."""
+    return {p.name: hashlib.sha256(p.read_bytes()).hexdigest() for p in MODEL_INPUTS if p.exists()}
+
+
+def save_input_hashes() -> None:
+    """Called after training: remembers which inputs this model was built from."""
+    INPUTS_FILE.parent.mkdir(parents=True, exist_ok=True)
+    INPUTS_FILE.write_text(json.dumps(input_hashes(), indent=2))
+
+
 def stale() -> bool:
-    """True when an input the model uses was saved after the model was trained."""
+    """True when an input the model uses has changed since the model was trained.
+
+    Compares file contents, not save times: redeploying the app (e.g. on Streamlit Cloud after a
+    GitHub merge) rewrites every file with a new time but the same content, and must not retrain.
+    """
     if not MODEL_FILE.exists():
         return False  # never trained here: the first run is done with run_all
     built = MODEL_FILE.stat().st_mtime
     if not PREDICTIONS_FILE.exists() or PREDICTIONS_FILE.stat().st_mtime < built:
         return True  # model retrained but predict did not finish
-    return any(p.exists() and p.stat().st_mtime > built for p in MODEL_INPUTS)
+    try:
+        return json.loads(INPUTS_FILE.read_text()) != input_hashes()
+    except (OSError, ValueError):
+        # A model trained before fingerprints existed: take today's inputs as its inputs, once.
+        save_input_hashes()
+        return False
 
 
 def _echo(text: str) -> None:
@@ -52,7 +79,22 @@ def _run(module: str) -> tuple[bool, str]:
 
 
 def retrain_and_predict() -> tuple[bool, str]:
-    """Train then predict. Returns (ok, combined output)."""
+    """Train then predict. Returns (ok, combined output).
+
+    Only one retrain runs at a time: when several visitors open the page together, the others
+    wait for the one in progress and use its result instead of starting their own.
+    """
+    if not _lock.acquire(blocking=False):
+        with _lock:
+            pass
+        return not stale(), "Another visitor's update was already running; using its results.\n"
+    try:
+        return _retrain_and_predict()
+    finally:
+        _lock.release()
+
+
+def _retrain_and_predict() -> tuple[bool, str]:
     ok, log = _run("capstone.train")
     if ok:
         ok, log2 = _run("capstone.predict")
