@@ -11,10 +11,18 @@ import numpy as np
 import pandas as pd
 
 from . import fundamentals, overnight
+from .indicators import adjust_for_actions, corporate_actions
 from .paths import PROCESSED, RAW, load_symbols
 
 # Overnight moves beyond this are almost always splits, bonuses or data errors.
 MAX_ABS_GAP = 0.20
+# Consecutive rows further apart than this (calendar days) are a hole in the data, not a weekend
+# or a holiday: NSE's longest closures are 4-5 days. A return measured across a hole is not an
+# overnight move, so neither the target nor the features of that row are used.
+MAX_SESSION_GAP_DAYS = 7
+# Bump when the feature table changes meaning, so a saved model built from the old table is retrained
+# once (refresh.stale() compares it like an input file).
+VERSION = "2026-11-23 corporate-action adjusted, data holes removed"
 
 PRICE_FEATURES = [
     "ret_1", "ret_5", "ret_20", "intraday_ret", "gap_today", "range_pct",
@@ -33,6 +41,10 @@ def load_prices(symbols: list[str] | None = None) -> pd.DataFrame:
         path = RAW / f"{symbol}.csv"
         if path.exists():
             df = pd.read_csv(path, parse_dates=["date"])
+            # Bonus issues and splits halve the price overnight. Without this, 5- and 20-day returns,
+            # the moving average and volatility look like a crash for weeks after each ex-date,
+            # and a bonus below the 20% filter (ICICIBANK 1:10) is learnt as a real -9% gap.
+            df = adjust_for_actions(df, corporate_actions(symbol))
             df["symbol"] = symbol
             frames.append(df)
     if not frames:
@@ -57,6 +69,14 @@ def _per_symbol(g: pd.DataFrame) -> pd.DataFrame:
     g["next_date"] = g["date"].shift(-1)
     g["next_open"] = g["open"].shift(-1)
     g["target_gap"] = g["next_open"] / g["close"] - 1
+    # Rows next to a hole in the data (e.g. NSE's bhavcopy server misses most of 2023 when no
+    # other source fills it) would measure months of movement as one night.
+    hole_after = (g["next_date"] - g["date"]).dt.days > MAX_SESSION_GAP_DAYS
+    g.loc[hole_after, ["target_gap", "next_open"]] = np.nan
+    days_since = (g["date"] - g["date"].shift(1)).dt.days
+    hole_within = days_since.gt(MAX_SESSION_GAP_DAYS).astype(int).rolling(21, min_periods=1).max().astype(bool)
+    g.loc[hole_within, ["ret_1", "ret_5", "ret_20", "gap_today", "vol_ratio_20", "volatility_20",
+                        "dist_sma_20"]] = np.nan
     return g
 
 

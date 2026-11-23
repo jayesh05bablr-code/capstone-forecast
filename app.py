@@ -11,11 +11,11 @@ import streamlit as st
 
 from capstone import autorun, env, refresh
 from capstone.paths import PROCESSED, SYNTHETIC_FLAG
-from capstone.ui import (assumptions, common, headline, summary, tab_accuracy, tab_ask, tab_backtest, tab_company,
-                         tab_download, tab_forecast, tab_insights, tab_invest, tab_live, tab_montecarlo, tab_rupee,
-                         tab_scalping, tab_sectors, tab_uploads, tab_weekly)
+from capstone.ui import (assumptions, common, glossary, headline, home, tab_accuracy, tab_ask, tab_backtest,
+                         tab_company, tab_download, tab_forecast, tab_insights, tab_invest, tab_live, tab_montecarlo,
+                         tab_rupee, tab_scalping, tab_sectors, tab_uploads, tab_weekly)
 
-st.set_page_config(page_title="India Opening Forecast", layout="wide")
+st.set_page_config(page_title="India Opening Forecast", layout="wide", initial_sidebar_state="expanded")
 env.load_streamlit_secrets()  # keys from the Secrets box when hosted on Streamlit Community Cloud
 st.title("India market opening forecast")
 
@@ -36,6 +36,7 @@ if not pred_path.exists() and not SYNTHETIC_FLAG.exists():
 elif not SYNTHETIC_FLAG.exists():
     autorun.ensure_fresh()
 
+nav_box = st.sidebar.container()  # page menu first, so it is the first thing in the sidebar
 with st.sidebar:
     info = autorun.status()
     st.markdown("**Automatic updates**")
@@ -80,33 +81,70 @@ if "reason" not in preds.columns or story is None:
     st.stop()
 
 moves = pd.DataFrame(story["moves"]).set_index("ticker")
-headline.render(preds, story, moves)
-summary.render(compact=True)
-cfg, chosen = assumptions.render(sorted(preds["symbol"]))
 
-(t_forecast, t_accuracy, t_weekly, t_backtest, t_mc, t_insights, t_ask, t_more) = st.tabs([
-    "Morning forecast", "Model accuracy", "Weekly analysis", "Backtesting", "Monte Carlo", "Business insights",
-    "Ask the market", "More tools"])
+# Only the chosen page runs. st.tabs would run every tab's code (backtests, simulations, charts) on
+# every click, for every visitor, which is what made the app slow and CPU-throttled.
+PAGES = {
+    "Today (start here)": "Plain-language outlook, confidence and what to do",
+    "Stock details": "Forecast, drivers and price chart for one stock",
+    "Model accuracy": "How the model did on data it never saw",
+    "Live market": "Index and stock prices during market hours",
+    "Weekly analysis": "Weekly moves versus trading costs",
+    "Backtesting": "What trading the weekly signal would have done",
+    "Monte Carlo": "Range of possible outcomes of that strategy",
+    "Business insights": "Executive summary, fundamentals and limitations",
+    "Ask the market": "Ask questions in plain English",
+    "More tools": "Sectors, rupee, planner, scalping, company data, downloads",
+    "Glossary": "Market words explained",
+}
+with nav_box:
+    page = st.radio("Go to", list(PAGES), key="page", captions=list(PAGES.values()))
+    st.divider()
+st.sidebar.caption("Decision support for a student project, not investment advice. No tool can guarantee profit.")
 
-with t_forecast:
-    symbol = tab_forecast.render(preds, story)
-with t_accuracy:
-    tab_accuracy.render(symbol)  # follows the stock picked on the Morning forecast tab
-with t_weekly:
-    tab_weekly.render(cfg, chosen)
-with t_backtest:
-    bt = tab_backtest.render(cfg, chosen)
-with t_mc:
-    tab_montecarlo.render(cfg, bt)
-with t_insights:
+# One plain-language line at the top of each analysis page, for readers new to markets.
+PLAIN = {
+    "Stock details": "The forecast for one stock, what pushed it up or down, and its price history.",
+    "Model accuracy": "Every forecast here was made on days the model had not seen. If the trained model's "
+                      "average miss is not clearly below the naive guess (open = yesterday's close), it has no edge.",
+    "Weekly analysis": "Would buying on Monday's open and selling on Friday's close have beaten the trading costs? "
+                       "Bars below the cost line lost money after charges.",
+    "Backtesting": "A replay of trading the weekly forecast with every charge paid. A negative result means the "
+                   "rule lost money in the past; it is shown so you are not tempted to trade it blindly.",
+    "Monte Carlo": "Thousands of reshuffled versions of that backtest. 'Probability of capital loss' is the share of "
+                   "simulated futures that ended below the starting money.",
+}
+if page in PLAIN:
+    st.info(f"**In plain words:** {PLAIN[page]}")
+
+symbol = st.session_state.get("forecast_symbol", preds["symbol"].iloc[0])
+if page == "Today (start here)":
+    home.render(preds, story, moves)
+elif page == "Stock details":
+    headline.render(preds, story, moves)
+    tab_forecast.render(preds, story)
+elif page == "Model accuracy":
+    tab_accuracy.render(symbol)  # follows the stock picked on Stock details
+elif page == "Live market":
+    tab_live.render(preds)
+elif page in ("Weekly analysis", "Backtesting", "Monte Carlo"):
+    cfg, chosen = assumptions.render(sorted(preds["symbol"]))
+    if page == "Weekly analysis":
+        tab_weekly.render(cfg, chosen)
+    elif page == "Backtesting":
+        tab_backtest.render(cfg, chosen)
+    else:
+        tab_montecarlo.render(cfg, tab_backtest.result(cfg))
+elif page == "Business insights":
     tab_insights.render(preds, story)
-with t_ask:
+elif page == "Ask the market":
     tab_ask.render()
-with t_more:
-    # Only the chosen tool runs (st.tabs would run all eight, and the Live view would keep
-    # refreshing in the background for every open browser, which uses a lot of CPU).
+elif page == "Glossary":
+    glossary.render()
+else:
+    # Only the chosen tool runs (the Live view would keep refreshing in the background otherwise).
     tools = {"US sectors and India": lambda: tab_sectors.render(preds, moves), "Rupee": tab_rupee.render,
-             "Live": lambda: tab_live.render(preds), "Invest planner": lambda: tab_invest.render(preds),
+             "Invest planner": lambda: tab_invest.render(preds),
              "Intraday scalping": lambda: tab_scalping.render(preds),
              "Company profile": lambda: tab_company.render(preds),
              "Upload company data": lambda: tab_uploads.render(preds, story), "Download data": tab_download.render}

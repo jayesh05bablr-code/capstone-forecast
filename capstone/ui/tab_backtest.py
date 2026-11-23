@@ -19,11 +19,22 @@ reference holds every stock every week, to show what the signal adds or removes.
 """
 
 
+DEFAULT_MODEL_INDEX = 2
+
+
+def result(cfg) -> dict | None:
+    """The backtest for the signal model last picked on the Backtesting page (cached), for Monte Carlo."""
+    if data_cache.weekly_oos() is None:
+        return None
+    options = list(weekly_model.WEEKLY_LABELS)[1:]
+    return data_cache.backtests(st.session_state.get("bt_model", options[DEFAULT_MODEL_INDEX]), cfg)
+
+
 def render(cfg, symbols: list[str]) -> dict | None:
     if data_cache.weekly_oos() is None:
         st.warning("No weekly forecasts yet: run `python -m capstone.train`.")
         return None
-    model = st.selectbox("Signal model", list(weekly_model.WEEKLY_LABELS)[1:], index=2,
+    model = st.selectbox("Signal model", list(weekly_model.WEEKLY_LABELS)[1:], index=DEFAULT_MODEL_INDEX,
                          format_func=weekly_model.WEEKLY_LABELS.get, key="bt_model",
                          help="HistGradientBoosting was fixed in advance as the signal; the others are for comparison.")
     res = data_cache.backtests(model, cfg)

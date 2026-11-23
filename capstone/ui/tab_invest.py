@@ -18,8 +18,8 @@ def plan_table(pl: pd.DataFrame, capital: float) -> pd.DataFrame:
         "Buy near (₹)": pl["entry"].round(2), "Stop loss (₹)": pl["stop"].round(2),
         "Stop %": (pl["stop_pct"] * 100).round(2), "Target (₹)": pl["target"].round(2),
         "Max loss (₹)": pl["loss_at_stop"].round(0), "Profit at target (₹)": pl["profit_at_target"].round(0),
-        "Backtest win rate %": (pl["win_rate"] * 100).round(1),
-        "Avg return per trade %": (pl["avg_ret"] * 100).round(2),
+        "Backtest win rate after costs %": (pl["win_rate"] * 100).round(1),
+        "Avg return per trade after costs %": (pl["avg_ret"] * 100).round(2),
         "Expected profit (₹)": pl["expected_profit"].round(0),
         "Forecast gap %": pl["pred_gap_pct"].round(2),
     })
@@ -52,7 +52,7 @@ def render(preds: pd.DataFrame) -> None:
     invested = pl["invest"].sum()
     m1, m2, m3, m4 = st.columns(4)
     m1.metric("Invested", f"₹{invested:,.0f}", f"₹{capital - invested:,.0f} kept as cash", delta_color="off")
-    m2.metric("Expected profit (backtest)", f"₹{pl['expected_profit'].sum():,.0f}",
+    m2.metric("Expected profit after costs (backtest)", f"₹{pl['expected_profit'].sum():,.0f}",
               f"{pl['expected_profit'].sum() / capital * 100:+.2f}% of amount", delta_color="off")
     m3.metric("If every target is hit", f"₹{pl['profit_at_target'].sum():,.0f}")
     m4.metric("If every stop is hit", f"₹{pl['loss_at_stop'].sum():,.0f}")
@@ -62,6 +62,9 @@ def render(preds: pd.DataFrame) -> None:
         st.markdown("\n".join(f"- {n}" for n in notes))
     st.caption(f"Backtest: last ~500 trading days per stock, buying at each day's open, selling at "
                f"the stop, the target or the close after {hold} days, whichever comes first "
-               "(a day that touches both counts as a stop). Expected profit = amount × average "
-               "return per trade. Brokerage and taxes are not included.")
+               "(a day that touches both counts as a stop). Prices are adjusted for bonus issues and splits. "
+               "Every trade pays a delivery round trip (brokerage, STT, stamp duty, exchange fees, GST, DP "
+               "charge, spread and slippage, default assumptions). Expected profit = amount × average return "
+               "per trade after costs. A stop can fill worse than its price when the stock gaps through it, so "
+               "real losses can be larger.")
     kite_view.render_swing(pl)
