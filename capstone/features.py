@@ -10,7 +10,7 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
-from . import fundamentals, overnight
+from . import fundamentals, nse_market, overnight
 from .indicators import adjust_for_actions, corporate_actions
 from .paths import PROCESSED, RAW, load_symbols
 
@@ -22,7 +22,7 @@ MAX_ABS_GAP = 0.20
 MAX_SESSION_GAP_DAYS = 7
 # Bump when the feature table changes meaning, so a saved model built from the old table is retrained
 # once (refresh.stale() compares it like an input file).
-VERSION = "2026-11-23 corporate-action adjusted, data holes removed"
+VERSION = "2026-11-25 + NSE market inputs (NIFTY 50, India VIX, breadth)"
 
 PRICE_FEATURES = [
     "ret_1", "ret_5", "ret_20", "intraday_ret", "gap_today", "range_pct",
@@ -32,7 +32,9 @@ PRICE_FEATURES = [
 FUNDAMENTAL_FEATURES = ["log_mcap", "pe", "pb", "eps_ttm", "roe_pct", "debt_to_equity",
                         "promoter_pct", "fii_pct", "dii_pct"]
 OVERNIGHT_FEATURES = overnight.OVERNIGHT_FEATURES
-FEATURES = PRICE_FEATURES + OVERNIGHT_FEATURES + FUNDAMENTAL_FEATURES
+# Market-wide inputs from NSE's MCP server (nse_market.py): NIFTY 50 move and gap, India VIX, breadth.
+NSE_FEATURES = nse_market.FEATURES
+FEATURES = PRICE_FEATURES + NSE_FEATURES + OVERNIGHT_FEATURES + FUNDAMENTAL_FEATURES
 
 
 def load_prices(symbols: list[str] | None = None) -> pd.DataFrame:
@@ -80,6 +82,15 @@ def _per_symbol(g: pd.DataFrame) -> pd.DataFrame:
     return g
 
 
+def attach_nse(df: pd.DataFrame) -> pd.DataFrame:
+    """Add NSE_FEATURES by date (missing where NSE's saved table has no row for that day)."""
+    nse = nse_market.features()
+    if nse.empty:
+        return df.assign(**{c: np.nan for c in NSE_FEATURES})
+    nse["date"] = pd.to_datetime(nse["date"])
+    return df.merge(nse, on="date", how="left")
+
+
 def build(symbols: list[str] | None = None, save: bool = True) -> pd.DataFrame:
     prices = load_prices(symbols)
     df = pd.concat([_per_symbol(g) for _, g in prices.groupby("symbol")], ignore_index=True)
@@ -88,6 +99,7 @@ def build(symbols: list[str] | None = None, save: bool = True) -> pd.DataFrame:
     daily = df.groupby("date")[["ret_1", "gap_today"]].mean()
     daily.columns = ["mkt_ret_1", "mkt_gap_today"]
     df = df.merge(daily, left_on="date", right_index=True, how="left")
+    df = attach_nse(df)
     df = overnight.attach(df)
     df = fundamentals.attach(df, fundamentals.load())
     df["log_mcap"] = np.log(df["market_cap_cr"])

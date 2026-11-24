@@ -7,6 +7,7 @@ MODEL = "Model with overnight US + rupee"
 WITHOUT_OVERNIGHT = "Same model without overnight data"
 METHOD_NAMES = {"model": MODEL,
                 "model_without_overnight": WITHOUT_OVERNIGHT,
+                "model_without_nse": "Same model without NSE market inputs (NIFTY 50, VIX, breadth)",
                 "baseline_open_eq_close": "Baseline: open = last close",
                 "baseline_mean_gap": "Baseline: average gap"}
 METRIC_NAMES = {"mae_rupees": "MAE (₹)", "mape_pct": "MAPE %", "direction_acc_pct": "Direction accuracy %"}

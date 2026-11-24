@@ -84,9 +84,34 @@ def walk_forward(df: pd.DataFrame, all_cols: list[str]) -> pd.DataFrame:
         if base_cols != cols:
             no_overnight = make_model().fit(train[base_cols], train["target_gap"])
             candidates["model_without_overnight"] = no_overnight.predict(test[base_cols])
+        nse_cols = [c for c in cols if c not in features.NSE_FEATURES]
+        if nse_cols != cols:  # the same model without NSE's market inputs, to show what they add
+            no_nse = make_model().fit(train[nse_cols], train["target_gap"])
+            candidates["model_without_nse"] = no_nse.predict(test[nse_cols])
         for name, pred in candidates.items():
             rows.append({"fold": k, "test_start": str(split)[:10], "method": name, **scores(test, pred)})
     return pd.DataFrame(rows)
+
+
+NSE_CHOICE_FILE = MODELS / "nse_inputs.json"
+
+
+def choose_nse_inputs(summary: pd.DataFrame, cols: list[str]) -> list[str]:
+    """Keep NSE's market inputs in the saved model only if they lowered the walk-forward error.
+
+    Compares average MAPE (scale-free, so expensive stocks do not dominate) of the same model with and
+    without them on identical test days, and records the outcome for the Model accuracy page.
+    """
+    if "model_without_nse" not in summary.index:
+        return cols
+    with_, without = float(summary.loc["model", "mape_pct"]), float(summary.loc["model_without_nse", "mape_pct"])
+    used = with_ <= without
+    MODELS.mkdir(parents=True, exist_ok=True)
+    NSE_CHOICE_FILE.write_text(json.dumps({"used": used, "mape_with": with_, "mape_without": without,
+                                           "features": features.NSE_FEATURES}, indent=2))
+    print(f"NSE market inputs: average error {with_:.4f}% with, {without:.4f}% without -> "
+          + ("kept in the model." if used else "left out of the saved model (they did not help on past data)."))
+    return cols if used else [c for c in cols if c not in features.NSE_FEATURES]
 
 
 def main() -> None:
@@ -100,6 +125,7 @@ def main() -> None:
     print(report.round(3).to_string(index=False))
     summary = report.groupby("method")[["mae_rupees", "mape_pct", "direction_acc_pct"]].mean()
     print("\nAverage over folds:\n", summary.round(3).to_string())
+    cols = choose_nse_inputs(summary, cols)
 
     model = make_model().fit(df[cols], df["target_gap"])
     # In-sample residuals understate error, so the band uses the last fold's out-of-sample spread.
