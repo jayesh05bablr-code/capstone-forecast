@@ -108,6 +108,8 @@ PAGES = {
     "More tools": "Sectors, rupee, planner, scalping, company data, downloads",
     "Glossary": "Market words explained",
 }
+if st.session_state.get("nav_to") in PAGES:  # a link from another page (e.g. the stock panel)
+    st.session_state["page"] = st.session_state.pop("nav_to")
 with nav_box:
     page = st.radio("Go to", list(PAGES), key="page", captions=list(PAGES.values()))
     st.divider()

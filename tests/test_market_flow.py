@@ -110,3 +110,38 @@ def test_latest_quotes_shares_one_download(monkeypatch):
             break
         time.sleep(0.02)
     assert len(calls) == 2
+
+
+def test_vwap_and_clickable_nodes():
+    snap = mf.snapshot(_quotes(), UNI)
+    assert snap.set_index("symbol").loc["AAA", "vwap"] == pytest.approx(100 * 1e7)  # ₹100 cr / 1 share
+    data = flow_anim.sector_flow_data(snap, mf.sector_table(snap), top=2)
+    kinds = {(n.get("kind"), n.get("id")) for n in data["nodes"]}
+    assert ("sector", "Banks") in kinds and ("stock", "BBB") in kinds
+    stock = next(n for n in data["nodes"] if n.get("id") == "AAA")
+    assert stock["chg"] == 10 and stock["sub"] == "100% buy"  # price change and estimated buy share
+
+
+def test_sector_focus_shows_every_stock_of_that_sector():
+    snap = mf.snapshot(_quotes(), UNI)
+    ctl = flow_anim.sector_flow_data(snap, mf.sector_table(snap), top=1, focus="IT")
+    assert [n["label"] for n in ctl["nodes"] if n["col"] == 2] == ["CCC", "DDD"] and ctl["focus"] == "IT"
+    _balanced(ctl)
+    cap = flow_anim.volume_flow_data(snap, top=1, focus="Banks")
+    assert [n["label"] for n in cap["nodes"] if n["col"] == 1] == ["BBB", "AAA"]
+    assert sum(l["value"] for l in cap["links"]) == pytest.approx(400)
+
+
+def test_capital_colours_follow_price_direction():
+    assert flow_anim.pct_color(1.5) != flow_anim.pct_color(-1.5)
+    assert flow_anim.pct_color(0.01) == flow_anim.NEUTRAL
+    assert flow_anim._clean({"a": float("nan"), "b": [1, 2.5]}) == {"a": None, "b": [1, 2.5]}
+
+
+def test_stock_panel_facts():
+    from capstone.ui import stock_panel
+    snap = mf.snapshot(_quotes(), UNI)
+    f = stock_panel.facts(snap, "AAA")
+    assert f["vs_sector"] == pytest.approx(10 - (10 * 100 - 10 * 300) / 400)
+    assert f["buy_share"] == 1 and f["value_rank"] == 2 and f["range_pos"] == 1
+    assert stock_panel.facts(snap, "ZZZ") is None
