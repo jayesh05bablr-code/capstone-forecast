@@ -121,7 +121,7 @@ def _report_card(cost_pct: float) -> None:
                         tuple(sorted((p.name, p.stat().st_mtime) for p in RAW.glob("*.csv")))))
     c = st.columns(3)
     d = m.get("daily", {})
-    hgb, naive = d.get("hist_gradient_boosting"), d.get("naive")
+    hgb, naive = d.get("forecast") or d.get("hist_gradient_boosting"), d.get("naive")
     if hgb and naive:
         better = (1 - hgb["mae_pct"] / naive["mae_pct"]) * 100
         c[0].metric("Direction right (past tests)", f"{hgb['direction_acc_pct']:.0f}%",

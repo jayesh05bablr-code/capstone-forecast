@@ -9,7 +9,8 @@ B. historical_average  each stock's average gap over all sessions whose gap was 
                        before the forecast (expanding mean, shifted one session): no look-ahead.
 C. linear_regression   ordinary least squares on the same features as the existing model
                        (median imputation fitted on the training window, standardised).
-D. hist_gradient_boosting  the existing model, unchanged (train.make_model).
+D. hist_gradient_boosting  the previous model, unchanged (train.make_model).
+E. forecast            the model the app forecasts with: the winner of train.tournament (model_zoo).
 
 Every model is fitted only on rows dated before its fold's first test date and scored on the same
 rows. The output is one row per (model, stock, test day) in models/oos_predictions.csv, so every
@@ -38,15 +39,17 @@ MODEL_LABELS = {
     "naive": "A. Naive (gap = 0)",
     "historical_average": "B. Historical average gap",
     "linear_regression": "C. Linear Regression",
-    "hist_gradient_boosting": "D. HistGradientBoosting (existing)",
+    "hist_gradient_boosting": "D. HistGradientBoosting (previous model)",
+    "forecast": "E. Pulse8 forecast (best in walk-forward tournament)",
 }
+FORECAST = "forecast"  # the model behind the app's forecasts, confidence table and interval checks
 OOS_FILE = MODELS / "oos_predictions.csv"
 COMPARISON_FILE = MODELS / "model_comparison.csv"
 BY_STOCK_FILE = MODELS / "model_comparison_by_stock.csv"
 COVERAGE_FILE = MODELS / "interval_coverage.csv"
 META_FILE = MODELS / "model_eval_meta.json"
 TESTS_FILE = MODELS / "model_significance.csv"
-PAIRS = [("hist_gradient_boosting", "naive"), ("hist_gradient_boosting", "historical_average"),
+PAIRS = [(FORECAST, "naive"), (FORECAST, "hist_gradient_boosting"), ("hist_gradient_boosting", "naive"), ("hist_gradient_boosting", "historical_average"),
          ("hist_gradient_boosting", "linear_regression"), ("linear_regression", "naive")]
 
 
@@ -68,9 +71,14 @@ def historical_average_gap(df: pd.DataFrame) -> pd.Series:
     return hist.reindex(df.index)
 
 
-def evaluate(df: pd.DataFrame, cols: list[str], save: bool = True) -> dict[str, pd.DataFrame]:
-    """Run all four models on the shared walk-forward folds. Returns the result tables."""
-    from . import train  # local import: train imports this module
+def evaluate(df: pd.DataFrame, cols: list[str], kind: str | None = None, save: bool = True) -> dict[str, pd.DataFrame]:
+    """Run all five models on the shared walk-forward folds. Returns the result tables.
+
+    kind: the model_zoo candidate the app forecasts with (default: the last tournament's winner).
+    """
+    from . import model_zoo, train  # local import: train imports this module
+
+    kind = kind or chosen_kind()
 
     df = df.dropna(subset=["target_gap"]).copy()
     df["hist_avg_gap"] = historical_average_gap(df)
@@ -82,6 +90,7 @@ def evaluate(df: pd.DataFrame, cols: list[str], save: bool = True) -> dict[str, 
             "historical_average": test["hist_avg_gap"].fillna(0.0).to_numpy(),
             "linear_regression": make_linear_model().fit(train_df[use], train_df["target_gap"]).predict(test[use]),
             "hist_gradient_boosting": train.make_model().fit(train_df[use], train_df["target_gap"]).predict(test[use]),
+            FORECAST: model_zoo.fit_candidate(kind, train_df[use], train_df["target_gap"], train_df["date"]).predict(test[use]),
         }
         base = test[["date", "symbol", "close", "next_open", "target_gap"]].assign(fold=k)
         for name, p in preds.items():
@@ -113,8 +122,18 @@ def evaluate(df: pd.DataFrame, cols: list[str], save: bool = True) -> dict[str, 
             "evaluated_at_utc": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M"),
             "test_start": str(oos["date"].min())[:10], "test_end": str(oos["date"].max())[:10],
             "test_rows_per_model": int(len(oos) // len(MODEL_LABELS)),
-            "symbols": sorted(oos["symbol"].unique().tolist()), "features": cols}, indent=2))
+            "symbols": sorted(oos["symbol"].unique().tolist()), "features": cols,
+            "forecast_model": kind, "forecast_model_label": model_zoo.label(kind)}, indent=2))
     return tables
+
+
+def chosen_kind() -> str:
+    """The tournament winner saved by the last training run (gradient boosting before the first one)."""
+    from . import model_zoo
+    try:
+        return json.loads((MODELS / "model_choice.json").read_text())["chosen"]
+    except (OSError, ValueError, KeyError):
+        return model_zoo.DEFAULT
 
 
 def add_intervals(oos: pd.DataFrame, lo: float = 0.10, hi: float = 0.90) -> tuple[pd.DataFrame, pd.DataFrame]:

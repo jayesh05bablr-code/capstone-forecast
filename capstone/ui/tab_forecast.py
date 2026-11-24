@@ -47,7 +47,7 @@ def render(preds: pd.DataFrame, story: dict) -> str:
     cov = data_cache.models_csv("interval_coverage.csv")
     note = ""
     if cov is not None and len(cov):
-        hgb = cov[cov["model"] == "hist_gradient_boosting"]
+        hgb = cov[cov["model"] == ("forecast" if (cov["model"] == "forecast").any() else "hist_gradient_boosting")]
         note = (f" In walk-forward testing the actual gap fell inside such a band "
                 f"{hgb['coverage_pct'].min():.0f}% to {hgb['coverage_pct'].max():.0f}% of the time per test period "
                 f"(target 80%).")

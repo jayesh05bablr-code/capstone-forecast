@@ -16,7 +16,7 @@ import numpy as np
 import pandas as pd
 from sklearn.ensemble import HistGradientBoostingRegressor
 
-from . import features, refresh
+from . import features, model_zoo, refresh
 from .paths import MODELS
 
 N_FOLDS = 5
@@ -69,28 +69,56 @@ def folds(df: pd.DataFrame, n_folds: int = N_FOLDS, min_train: int = MIN_TRAIN_D
         yield k + 1, df[df["date"] < split], test
 
 
-def walk_forward(df: pd.DataFrame, all_cols: list[str]) -> pd.DataFrame:
+def walk_forward(df: pd.DataFrame, all_cols: list[str], kind: str = model_zoo.DEFAULT) -> pd.DataFrame:
+    """Fold-by-fold scores of the chosen model kind, the baselines, and the same model without the
+    overnight inputs and without NSE's market inputs (to show what each adds)."""
     rows = []
     for k, train, test in folds(df):
         split = test["date"].min()
         cols = usable_features(train, all_cols)
-        model = make_model().fit(train[cols], train["target_gap"])
+
+        def fit_predict(use):
+            return model_zoo.fit_candidate(kind, train[use], train["target_gap"], train["date"]).predict(test[use])
+
         candidates = {
-            "model": model.predict(test[cols]),
+            "model": fit_predict(cols),
             "baseline_open_eq_close": np.zeros(len(test)),
             "baseline_mean_gap": np.full(len(test), train["target_gap"].mean()),
         }
         base_cols = [c for c in cols if c not in features.OVERNIGHT_FEATURES]
         if base_cols != cols:
-            no_overnight = make_model().fit(train[base_cols], train["target_gap"])
-            candidates["model_without_overnight"] = no_overnight.predict(test[base_cols])
+            candidates["model_without_overnight"] = fit_predict(base_cols)
         nse_cols = [c for c in cols if c not in features.NSE_FEATURES]
         if nse_cols != cols:  # the same model without NSE's market inputs, to show what they add
-            no_nse = make_model().fit(train[nse_cols], train["target_gap"])
-            candidates["model_without_nse"] = no_nse.predict(test[nse_cols])
+            candidates["model_without_nse"] = fit_predict(nse_cols)
         for name, pred in candidates.items():
             rows.append({"fold": k, "test_start": str(split)[:10], "method": name, **scores(test, pred)})
     return pd.DataFrame(rows)
+
+
+def tournament(df: pd.DataFrame, all_cols: list[str], names: list[str] | None = None) -> pd.DataFrame:
+    """Every candidate in model_zoo on the same walk-forward folds (method = 'candidate:<name>')."""
+    rows = []
+    for k, train, test in folds(df):
+        cols = usable_features(train, all_cols)
+        for name in names or list(model_zoo.CANDIDATES):
+            pred = model_zoo.fit_candidate(name, train[cols], train["target_gap"], train["date"]).predict(test[cols])
+            rows.append({"fold": k, "test_start": str(test["date"].min())[:10], "method": f"candidate:{name}",
+                         **scores(test, pred)})
+    return pd.DataFrame(rows)
+
+
+CHOICE_FILE = MODELS / "model_choice.json"
+
+
+def save_choice(chosen: str, summary: pd.DataFrame) -> None:
+    """Record the tournament result for the Model accuracy page."""
+    table = {i.split(":", 1)[1]: {"label": model_zoo.label(i.split(":", 1)[1]), **summary.loc[i].round(5).to_dict()}
+             for i in summary.index if i.startswith("candidate:")}
+    naive = summary.loc["baseline_open_eq_close"].round(5).to_dict() if "baseline_open_eq_close" in summary.index else None
+    MODELS.mkdir(parents=True, exist_ok=True)
+    CHOICE_FILE.write_text(json.dumps({"chosen": chosen, "label": model_zoo.label(chosen), "candidates": table,
+                                       "naive": naive}, indent=2))
 
 
 NSE_CHOICE_FILE = MODELS / "nse_inputs.json"
@@ -120,23 +148,32 @@ def main() -> None:
     skipped = sorted(set(features.FEATURES) - set(cols))
     if skipped:
         print(f"Skipping empty features: {', '.join(skipped)}")
-    report = walk_forward(df, cols)
     pd.set_option("display.width", 120)
+    metric_cols = ["mae_rupees", "mape_pct", "direction_acc_pct"]
+
+    # 1. Tournament: every candidate model on the same walk-forward folds; keep the lowest error.
+    tour = tournament(df, cols)
+    kind = model_zoo.pick(tour.groupby("method")[metric_cols].mean())
+    print(f"Tournament winner: {model_zoo.label(kind)} ({kind})")
+
+    # 2. The winner with and without the overnight and NSE inputs, plus the baselines.
+    report = pd.concat([walk_forward(df, cols, kind), tour], ignore_index=True)
     print(report.round(3).to_string(index=False))
-    summary = report.groupby("method")[["mae_rupees", "mape_pct", "direction_acc_pct"]].mean()
+    summary = report.groupby("method")[metric_cols].mean()
     print("\nAverage over folds:\n", summary.round(3).to_string())
+    save_choice(kind, summary)
     cols = choose_nse_inputs(summary, cols)
 
-    model = make_model().fit(df[cols], df["target_gap"])
+    model = model_zoo.fit_candidate(kind, df[cols], df["target_gap"], df["date"])
     # In-sample residuals understate error, so the band uses the last fold's out-of-sample spread.
-    cutoff = pd.Timestamp(report["test_start"].iloc[-1])
+    cutoff = pd.Timestamp(report["test_start"].max())
     before, last = df[df["date"] < cutoff], df[df["date"] >= cutoff]
     hold_cols = usable_features(before, cols)
-    holdout_model = make_model().fit(before[hold_cols], before["target_gap"])
+    holdout_model = model_zoo.fit_candidate(kind, before[hold_cols], before["target_gap"], before["date"])
     resid = last["target_gap"] - holdout_model.predict(last[hold_cols])
     band = {"q10": float(resid.quantile(0.10)), "q90": float(resid.quantile(0.90))}
     MODELS.mkdir(parents=True, exist_ok=True)
-    joblib.dump({"model": model, "features": cols, "band": band}, MODELS / "gap_model.joblib")
+    joblib.dump({"model": model, "features": cols, "band": band, "kind": kind}, MODELS / "gap_model.joblib")
     report.to_csv(MODELS / "walk_forward_report.csv", index=False)
     (MODELS / "band.json").write_text(json.dumps(band, indent=2))
     refresh.save_input_hashes()  # so a redeploy with the same inputs does not retrain
@@ -145,7 +182,7 @@ def main() -> None:
     # Four-way comparison (naive, historical average, Linear Regression, this model) on the same
     # test rows, with out-of-sample forecasts saved for the accuracy dashboard and the backtests.
     from . import model_eval
-    model_eval.print_report(model_eval.evaluate(df, cols))
+    model_eval.print_report(model_eval.evaluate(df, cols, kind))
 
     # Weekly analysis, weekly model, backtests and Monte Carlo (and Supabase, if configured).
     from . import analysis
