@@ -1,4 +1,6 @@
-"""Predict tomorrow's opening price for every symbol from its latest close.
+"""Predict the next NSE trading day's opening price for every symbol from its latest close.
+
+The target day skips weekends and NSE holidays (see market_calendar).
 
     python -m capstone.predict
 
@@ -14,7 +16,7 @@ import json
 import joblib
 import pandas as pd
 
-from . import explain, features, overnight
+from . import explain, features, market_calendar, overnight
 from .paths import FX_DIR, MODELS, PROCESSED
 
 LOG_COLUMNS = ["symbol", "as_of_close", "close", "pred_gap_pct", "pred_open", "pred_open_low", "pred_open_high"]
@@ -56,6 +58,7 @@ def _live_fx() -> float | None:
 
 
 def main() -> None:
+    print(market_calendar.update_from_nse())  # best effort: NSE's latest holiday list
     bundle = joblib.load(MODELS / "gap_model.joblib")
     cols = bundle["features"]
     df = features.build(save=False)
@@ -70,11 +73,14 @@ def main() -> None:
         latest[f"contrib_{name}"] = contrib[name]
 
     as_of = latest["date"].max()
+    # The open being forecast: the next day NSE trades (skips weekends and NSE holidays).
+    end = pd.Timestamp(market_calendar.next_trading_day(as_of))
     us_last = overnight.latest_session()
-    complete = us_last is not None and us_last >= as_of
+    us_needed = pd.Timestamp(market_calendar.last_us_session_before(end))
+    complete = us_last is not None and us_last >= us_needed
     if not complete:
-        print(f"Note: no US session after {as_of:%Y-%m-%d} in data/us yet. Run fetch_overnight after "
-              "the US close (about 02:30 IST) for the overnight signal.")
+        print(f"Note: the US session of {us_needed:%Y-%m-%d} is not in data/us yet. Run fetch_overnight after "
+              "the US close (about 02:30 IST) for the full overnight signal.")
     smap = overnight.stock_map().set_index("symbol")
     for c in ["us_etf", "us_sector", "adr", "fx_exposure"]:
         latest[c] = latest["symbol"].map(smap[c])
@@ -86,7 +92,6 @@ def main() -> None:
     keep = LOG_COLUMNS + ["india_sector", "us_etf", "us_sector", "adr", "fx_exposure",
                           *[c for c in features.OVERNIGHT_FEATURES if c in out.columns],
                           *[f"contrib_{n}" for n in contrib.columns], "reason"]
-    end = as_of + pd.offsets.BDay(1)
     out["target_date"] = f"{end:%Y-%m-%d}"
     out["q10_gap_pct"] = (gap + bundle["band"]["q10"]) * 100
     out["q90_gap_pct"] = (gap + bundle["band"]["q90"]) * 100

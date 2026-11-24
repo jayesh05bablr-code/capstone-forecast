@@ -30,9 +30,10 @@ def now_ist() -> pd.Timestamp:
 
 
 def market_open(at: datetime | None = None) -> bool:
-    """True on a weekday between 09:15 and 15:30 IST (exchange holidays are not known here)."""
-    at = at or now_ist()
-    return at.weekday() < 5 and OPEN <= at.time() <= CLOSE
+    """True between 09:15 and 15:30 IST on an NSE trading day (weekends and NSE holidays excluded)."""
+    from . import market_calendar
+
+    return market_calendar.market_open(at or now_ist())
 
 
 def _from_yfinance(symbols: list[str]) -> dict[str, pd.DataFrame]:
@@ -192,6 +193,13 @@ def nse_quotes(symbols: list[str]) -> dict[str, dict]:
         return {}
 
 
+def _same_day(as_of, target) -> bool:
+    """True when a quote's time falls on the forecast's target day (or the target is unknown)."""
+    if target is None or (isinstance(target, float) and np.isnan(target)) or as_of is None:
+        return True
+    return pd.Timestamp(as_of).date() == pd.Timestamp(target).date()
+
+
 def quote_table(preds: pd.DataFrame, quotes: dict[str, dict]) -> pd.DataFrame:
     """One row per stock from the official NSE quotes, with the morning forecast beside it."""
     rows = []
@@ -200,8 +208,10 @@ def quote_table(preds: pd.DataFrame, quotes: dict[str, dict]) -> pd.DataFrame:
         if not q or not q.get("ltp"):
             continue
         open_, prev = q.get("open") or 0, q.get("prev_close") or 0
+        if not _same_day(q.get("as_of"), getattr(r, "target_date", None)):
+            open_ = 0  # an older session's open: the forecast is for a later day, nothing to check yet
         rows.append({"Stock": r.symbol, "LTP (₹)": q["ltp"], "Change %": q.get("pct_change"),
-                     "Open (₹)": open_ or None, "High (₹)": q.get("high"), "Low (₹)": q.get("low"),
+                     "Open (₹)": q.get("open") or None, "High (₹)": q.get("high"), "Low (₹)": q.get("low"),
                      "Prev close (₹)": prev or None, "Volume": q.get("volume"),
                      "Forecast open (₹)": round(r.pred_open, 2),
                      "Forecast direction right?": _forecast_right(open_, prev, r.pred_gap_pct)
@@ -211,7 +221,7 @@ def quote_table(preds: pd.DataFrame, quotes: dict[str, dict]) -> pd.DataFrame:
 
 
 def live_rows(preds: pd.DataFrame, bars: dict[str, pd.DataFrame], cfg,
-              quotes: dict[str, dict] | None = None) -> tuple[pd.DataFrame, list[dict]]:
+              quotes: dict[str, dict] | None = None, now: datetime | None = None) -> tuple[pd.DataFrame, list[dict]]:
     """One row per stock: LTP, move, buyer/seller split, forecast check and live setup status.
 
     cfg is a tab_scalping.Settings. `quotes` are official NSE quotes (nse_quotes); when a stock has
@@ -248,13 +258,18 @@ def live_rows(preds: pd.DataFrame, bars: dict[str, pd.DataFrame], cfg,
             open_ = float(q.get("open") or open_)
             as_of = max(as_of, pd.Timestamp(q["as_of"]))
         vs = volume_summary(today, prev_close)
+        check = _same_day(day, getattr(r, "target_date", None))
         row = {"Stock": r.symbol, "LTP (₹)": round(ltp, 2), "Change %": round((ltp / prev_close - 1) * 100, 2),
                "As of (IST)": as_of.strftime("%d %b %H:%M"), "Source": source,
                "Forecast open (₹)": round(r.pred_open, 2), "Actual open (₹)": round(open_, 2),
-               "Forecast direction right?": _forecast_right(open_, prev_close, r.pred_gap_pct),
+               "Forecast direction right?": _forecast_right(open_, prev_close, r.pred_gap_pct) if check else "",
                "Buy volume %": vs.get("buy_pct"), "Sell volume %": vs.get("sell_pct"),
                f"Buy % last {vs.get('recent_minutes', 0)} min": vs.get("recent_buy_pct"),
                "Pressure": pressure_word(vs.get("recent_buy_pct"))}
+        if day < (now or now_ist()).date():
+            rows.append({**row, "Status": f"Session of {day:%a %d %b} is over",
+                         "Suggestion": "Market closed now. Setups come back on the next trading day."})
+            continue
         orr = intraday.opening_range(today, day, cfg.or_min)
         if orr is None:
             rows.append({**row, "Status": "Range forming",

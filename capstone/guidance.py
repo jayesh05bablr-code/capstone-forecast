@@ -142,14 +142,28 @@ def market_mood(avg_gap_pct: float) -> tuple[str, str]:
 
 def freshness(next_open: str, overnight_complete: bool, now_ist: datetime) -> tuple[str, str]:
     """('ok' | 'preliminary' | 'old', message) for the forecast's target date."""
+    from . import market_calendar
+
     target = pd.Timestamp(next_open).date()
     today = now_ist.date()
+    closed = market_calendar.holiday_name(target)
+    if closed:
+        nxt = market_calendar.next_trading_day(target)
+        return "old", (f"This forecast was made for {target:%a %d %b}, but NSE is closed that day ({closed}). "
+                       f"A new forecast for the next trading day, {nxt:%a %d %b}, is being made; reload in a "
+                       "few minutes or use Update now in the sidebar.")
     if target < today:
         return "old", (f"This forecast was for {target:%a %d %b}, which has passed. The app updates itself at "
                        "08:45 and 16:15 IST; use Update now in the sidebar if it has not.")
+    closed_today = market_calendar.holiday_name(today)
+    lead = (f"NSE is closed today ({today:%a %d %b}: {closed_today}). " if closed_today else "")
     if not overnight_complete:
-        return "preliminary", ("Preliminary: last night's US session is not in yet, so the biggest overnight "
-                               "driver is missing. The 08:45 IST update adds it.")
+        night = "the US session before that open" if closed_today else "last night's US session"
+        return "preliminary", (f"{lead}Preliminary forecast for the open on {target:%a %d %b %Y}: {night} is "
+                               "not in yet, so the biggest overnight driver is missing. The 08:45 IST update "
+                               "adds it.")
+    if closed_today:
+        return "ok", f"{lead}This forecast is for the next trading day's open, {target:%a %d %b %Y}."
     return "ok", f"Forecast for the open on {target:%a %d %b %Y}, with last night's US and rupee moves included."
 
 

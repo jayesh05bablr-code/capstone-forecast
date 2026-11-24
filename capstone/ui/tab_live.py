@@ -10,7 +10,7 @@ import pandas as pd
 import streamlit as st
 from plotly.subplots import make_subplots
 
-from capstone import charts, live
+from capstone import charts, live, market_calendar
 from capstone.charts import CONFIG as CHART_CONFIG
 from capstone.ui import kite_view
 from capstone.ui.common import DOWN, UP
@@ -57,7 +57,8 @@ def _strip(items: list[tuple[str, float | None, float | None, bool]], per_row: i
 def _nse_block(preds: pd.DataFrame, quotes: dict, indices: dict) -> None:
     st.markdown("**Indices** (NSE's own feed, 1-3 minutes behind the exchange)")
     _strip([(name, ix.get("last"), ix.get("percChange"), name == "INDIA VIX") for name, ix in indices.items()])
-    st.markdown("**Your 5 stocks**")
+    st.markdown("**Your 5 stocks**" + ("" if live.market_open() else
+                " (last session's close; % change is versus the session before it)"))
     _strip([(f"{s} (₹)", (quotes.get(s) or {}).get("ltp"), (quotes.get(s) or {}).get("pct_change"), False)
             for s in preds["symbol"]], per_row=len(preds) or 1)
     table = live.quote_table(preds, quotes)
@@ -113,10 +114,13 @@ def _body(preds: pd.DataFrame) -> None:
     bars, source = _bars(tuple(preds["symbol"]))
     quotes, indices = _nse(tuple(preds["symbol"]))
     now = live.now_ist()
-    is_open = live.market_open(now)
+    mkt = market_calendar.status(now)
     sources = " and ".join((["NSE"] if quotes else []) + ([source] if bars else [])) or "nowhere"
-    st.caption(f"Updated {now:%d %b %H:%M:%S} IST from {sources}. Market "
-               f"{'open' if is_open else 'closed: showing the last session'}. "
+    if mkt.is_open:
+        st.success(f"**{mkt.headline}.** {mkt.detail}")
+    elif mkt.state not in ("holiday", "weekend"):  # those already have the banner at the top of the page
+        st.info(f"**{mkt.headline}.** {mkt.detail}")
+    st.caption(f"Updated {now:%d %b %H:%M:%S} IST from {sources}. "
                f"Settings (capital, risk, range, window) come from the Intraday scalping tab.")
     if quotes:
         _nse_block(preds, quotes, indices)
@@ -137,8 +141,14 @@ def _body(preds: pd.DataFrame) -> None:
     q = quotes.get(sym) or {}
     if q.get("prev_close") and q.get("as_of") and len(today) and q["as_of"].date() == today["datetime"].dt.date.iloc[0]:
         prev_close = float(q["prev_close"])  # NSE's official previous close
-    pred = preds.loc[preds["symbol"] == sym, "pred_open"]
-    _candles(sym, today, prev_close, float(pred.iloc[0]) if len(pred) else None, cfg)
+    row = preds.loc[preds["symbol"] == sym]
+    pred = float(row["pred_open"].iloc[0]) if len(row) else None
+    target = row["target_date"].iloc[0] if len(row) and "target_date" in row else None
+    if pred and len(today) and not live._same_day(today["datetime"].iloc[0], target):
+        st.caption(f"The forecast open (₹{pred:,.2f}) is for the next trading day, {pd.Timestamp(target):%a %d %b}, "
+                   "so it is not drawn on this older session.")
+        pred = None
+    _candles(sym, today, prev_close, pred, cfg)
 
     vs = live.volume_summary(today, prev_close)
     if vs:
@@ -157,7 +167,7 @@ def _body(preds: pd.DataFrame) -> None:
                "Kite's depth for that.")
 
     st.markdown("**Breakout setups** (settings from the Intraday scalping tool)")
-    table, plans = live.live_rows(preds, bars, cfg, quotes)
+    table, plans = live.live_rows(preds, bars, cfg, quotes, now)
     st.dataframe(table, hide_index=True, use_container_width=True)
     active = [p for p in plans if p["status"] in ("Armed", "In trade") and p["qty"] > 0]
     if active:

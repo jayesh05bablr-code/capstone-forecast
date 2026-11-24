@@ -80,11 +80,15 @@ def window_return(close: pd.Series, start: pd.Series, end: pd.Series) -> tuple[n
 def attach(df: pd.DataFrame) -> pd.DataFrame:
     """Add OVERNIGHT_FEATURES to rows with date (India close) and next_date.
 
-    Rows without a next_date (the latest close) assume the next weekday.
+    Rows without a next_date (the latest close) use the next NSE trading day, so a forecast made
+    before a holiday counts every US session up to the day India actually reopens.
     """
+    from . import market_calendar
+
     df = df.copy()
     start = df["date"]
-    end = df["next_date"].fillna(df["date"] + pd.offsets.BDay(1))
+    fill = pd.to_datetime(df["date"].map(market_calendar.next_trading_day))
+    end = df["next_date"].fillna(fill)
     df["us_mkt_ret"], df["us_sessions"] = window_return(load_close(MARKET_ETF), start, end)
     df["us_tech_ret"], _ = window_return(load_close(TECH_ETF), start, end)
     df["usdinr_chg"], _ = window_return(load_fx(), start, end)

@@ -250,6 +250,20 @@ very accurate on it. That is by design and says nothing about real accuracy. The
 a red banner while sample data is present. Before real data, delete `data/raw`, `data/us`,
 `data/fx` and `data/SYNTHETIC_DATA`.
 
+## NSE trading holidays
+
+The app knows which days NSE trades (`capstone/market_calendar.py`). On a weekend or an NSE holiday
+every page shows "Market closed today: <holiday>", prices are labelled as the last session's close,
+and the forecast is for the **next day NSE actually trades** (for example, Monday 23 Nov 2026's close
+forecasts Wednesday 25 Nov, because Tuesday 24 Nov is Guru Nanak Jayanti). The overnight US and rupee
+moves then cover every US session up to that day, and the US holiday list (e.g. Thanksgiving) is used
+to know when the overnight data is complete.
+
+The holiday list comes from NSE itself (nseindia.com, downloaded during each automatic update when
+NSE lets the server in) with a bundled copy in `data/nse_holidays.csv` as the fallback. NSE publishes
+next year's list in December: add the 2027 rows to that file then (format `date,name`), or let the
+online download pick them up.
+
 ## How the overnight window works
 
 NSE closes at 15:30 IST. The US session dated the same day closes at 01:30 or 02:30 IST, before

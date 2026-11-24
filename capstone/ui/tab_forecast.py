@@ -32,7 +32,7 @@ def render(preds: pd.DataFrame, story: dict) -> str:
     q90 = row["q90_gap_pct"] if "q90_gap_pct" in row and pd.notna(row.get("q90_gap_pct")) else \
         (row["pred_open_high"] / row["close"] - 1) * 100
 
-    st.markdown(f"#### {symbol}: forecast for the NSE open on {story['next_open']}")
+    st.markdown(f"#### {symbol}: forecast for the NSE open on {pd.Timestamp(story['next_open']):%a %d %b %Y}")
     c = st.columns(4)
     c[0].metric("Predicted opening gap", f"{gap:+.2f}%")
     c[1].metric("Predicted opening price", f"₹{row['pred_open']:,.2f}", f"from close ₹{row['close']:,.2f}",

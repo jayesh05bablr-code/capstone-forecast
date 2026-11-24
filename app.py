@@ -15,14 +15,15 @@ codeversion.reload_if_changed()  # pick up a new deploy's code without rebooting
 
 from capstone import autorun, env, refresh  # noqa: E402
 from capstone.paths import PROCESSED, SYNTHETIC_FLAG
-from capstone.ui import (assumptions, common, glossary, headline, home, how_it_works, tab_accuracy, tab_ask, tab_backtest,
-                         tab_company, tab_download, tab_flow, tab_forecast, tab_insights, tab_invest, tab_live, tab_montecarlo,
+from capstone.ui import (assumptions, common, glossary, headline, home, how_it_works, market_status, tab_accuracy,
+                         tab_ask, tab_backtest, tab_company, tab_download, tab_flow, tab_forecast, tab_insights, tab_invest, tab_live, tab_montecarlo,
                          tab_rupee, tab_scalping, tab_sectors, tab_uploads, tab_weekly)
 
 st.set_page_config(page_title="Pulse8 · India opening forecast", page_icon="📈", layout="wide", initial_sidebar_state="expanded")
 env.load_streamlit_secrets()  # keys from the Secrets box when hosted on Streamlit Community Cloud
 st.title("Pulse8")
 st.caption("The market's pulse before the bell: India market opening forecast for the 09:15 IST open.")
+market_status.banner()  # "Market closed today: <holiday>" on NSE holidays and weekends
 
 # Keep the forecast current without a terminal: fetch, (re)train and predict when an update is due.
 pred_path = PROCESSED / "predictions.csv"
@@ -79,6 +80,9 @@ if SYNTHETIC_FLAG.exists():
 
 preds = pd.read_csv(pred_path)
 story = json.loads(story_path.read_text()) if story_path.exists() else None
+if not SYNTHETIC_FLAG.exists() and market_status.redo_forecast_if_wrong(story, autorun):
+    st.info("The saved forecast was for a day NSE is closed. A new one for the next trading day is being made "
+            "now; reload the page in a few minutes.")
 if "reason" not in preds.columns or story is None:
     st.info("These predictions come from the older model. Run fetch_overnight, train and predict "
             "to get overnight US and rupee reasons.")
