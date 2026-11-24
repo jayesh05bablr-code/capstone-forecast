@@ -46,7 +46,7 @@ def style(fig: go.Figure, height: int = 420, title: str | None = None, hover: st
           legend_top: bool = True) -> go.Figure:
     """Common look: readable fonts, light grid, crosshair spikes, compact hover, legend on top."""
     fig.update_layout(
-        title=dict(text=f"<b>{title}</b>" if title else None, x=0, xanchor="left", font=dict(size=16)),
+        title=dict(text=f"<b>{title}</b>" if title else "", x=0, xanchor="left", font=dict(size=16)),
         height=height, hovermode=hover, font=dict(family=FONT, size=13),
         margin=dict(l=10, r=10, t=70 if title else 30, b=10),
         hoverlabel=dict(font=dict(family=FONT, size=12), namelength=-1),
