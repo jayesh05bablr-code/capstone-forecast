@@ -51,6 +51,33 @@ def _filters(oos: pd.DataFrame):
     return sel, stock, models, default_lo
 
 
+def _tournament() -> None:
+    """Every candidate model's walk-forward error, the winner the app forecasts with, and the naive bar."""
+    import json
+    f = MODELS / "model_choice.json"
+    if not f.exists():
+        return
+    try:
+        c = json.loads(f.read_text())
+    except ValueError:
+        return
+    rows = [{"Model": v["label"] + ("  ✓ used for forecasts" if k == c["chosen"] else ""),
+             "Avg error % (MAPE)": v["mape_pct"], "Direction right %": v["direction_acc_pct"], "MAE ₹": v["mae_rupees"]}
+            for k, v in c["candidates"].items()]
+    if c.get("naive"):
+        rows.append({"Model": "Naive: open = last close (the bar to beat)", "Avg error % (MAPE)": c["naive"]["mape_pct"],
+                     "Direction right %": None, "MAE ₹": c["naive"]["mae_rupees"]})
+    t = pd.DataFrame(rows).sort_values("Avg error % (MAPE)")
+    with st.expander(f"Model tournament: {c['label']} won", expanded=False):
+        st.dataframe(t.round(4), hide_index=True, use_container_width=True)
+        beat = c.get("naive") and c["candidates"][c["chosen"]]["mape_pct"] < c["naive"]["mape_pct"]
+        st.caption("Eight candidate models, each trained only on data before every test period and scored on the "
+                   "same days; the lowest average error wins and is re-checked at every retrain. "
+                   + ("The winner beats the naive guess." if beat else
+                      "**None beat the naive guess on past data**, so treat the forecast's size with caution: "
+                      "opening gaps are mostly news that arrives overnight."))
+
+
 def _nse_note() -> None:
     """Whether NSE's market inputs (NIFTY 50, India VIX, breadth) made it into the saved model, and why."""
     import json
@@ -94,6 +121,7 @@ def render(symbol: str) -> None:
     c2.plotly_chart(charts_eval.metric_bars(table, "direction_acc_pct", "Directional accuracy (%, higher is better)",
                                             MODEL_LABELS), use_container_width=True, config=CHART_CONFIG)
 
+    _tournament()
     _nse_note()
     tests = data_cache.models_csv("model_significance.csv")
     if tests is not None:
@@ -111,7 +139,7 @@ def render(symbol: str) -> None:
     st.caption("Bars = actual gap (green up, red down); lines = forecasts. The naive and historical-average lines "
                "start hidden: click their legend entries to show them. Drag the strip below the chart to zoom.")
     focus = st.selectbox("Model for the scatter and error charts", models, format_func=MODEL_LABELS.get,
-                         index=models.index("hist_gradient_boosting") if "hist_gradient_boosting" in models else 0,
+                         index=models.index("forecast") if "forecast" in models else 0,
                          key="acc_focus")
     f = day[day["model"] == focus]
     c1, c2 = st.columns(2)

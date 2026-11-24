@@ -23,7 +23,8 @@ def measured() -> dict:
         out["tests"] = pd.read_csv(model_eval.TESTS_FILE).to_dict("records")
     if model_eval.COVERAGE_FILE.exists():
         cov = pd.read_csv(model_eval.COVERAGE_FILE)
-        out["coverage"] = cov[cov["model"] == "hist_gradient_boosting"]["coverage_pct"].tolist()
+        key = "forecast" if (cov["model"] == "forecast").any() else "hist_gradient_boosting"
+        out["coverage"] = cov[cov["model"] == key]["coverage_pct"].tolist()
     if weekly_model.WEEKLY_COMPARISON_FILE.exists():
         out["weekly"] = pd.read_csv(weekly_model.WEEKLY_COMPARISON_FILE).set_index("model").to_dict("index")
     if (MODELS / "backtest_summary.csv").exists():
@@ -52,32 +53,36 @@ historical accuracy against simple baselines, analyses weekly trading opportunit
 backtests a weekly signal, stress-tests it with Monte Carlo simulation, and flags disagreements with company
 fundamentals.
 
-**Data sources.** NSE daily OHLCV (TejHQ API, Yahoo Finance fallback); US S&P 500, Nasdaq 100, 11 sector ETFs and
+**Data sources.** NSE daily OHLCV (NSE's official bhavcopy via NSE's MCP server; TejHQ and Yahoo Finance fill
+gaps); NIFTY 50, India VIX and whole-market breadth (NSE MCP); US S&P 500, Nasdaq 100, 11 sector ETFs and
 Indian ADRs, and USD/INR history (Twelve Data, Alpha Vantage fallback); live USD/INR (exchangerate.dev);
 quarterly results and shareholding (Tracxn exports / company data workbooks). Optional Supabase stores the outputs.
 
 **Model architecture.** Features known at the close plus the overnight US/rupee window up to the next open;
-target = next open / close - 1. HistGradientBoosting (existing model) compared with Linear Regression, a naive
-"open = last close" baseline and a leakage-free historical-average baseline on identical expanding walk-forward
-folds. Intervals from earlier folds' out-of-sample residuals. Driver attribution by what-if neutralisation."""]
+target = next open / close - 1. A walk-forward tournament of eight candidates (gradient boosting, regularised
+boosting, ridge, Huber, their average, and versions shrunk toward zero) picks the forecasting model, which is
+compared with HistGradientBoosting, Linear Regression, a naive "open = last close" baseline and a leakage-free
+historical-average baseline on identical expanding walk-forward folds. Intervals from earlier folds' out-of-sample residuals. Driver attribution by what-if neutralisation."""]
 
     d = m.get("daily")
     if d:
         meta = m.get("daily_meta", {})
         hgb, lr, nv, ha = (d.get(k, {}) for k in ("hist_gradient_boosting", "linear_regression", "naive",
                                                    "historical_average"))
+        name = "HistGradientBoosting"
+        if d.get("forecast"):  # the tournament winner the app forecasts with
+            hgb, name = d["forecast"], meta.get("forecast_model_label", "Pulse8 forecast model")
         improvement = (1 - hgb["mae_pct"] / nv["mae_pct"]) * 100
         verdict = next((t["verdict"] for t in m.get("tests", []) if "Linear" in t["model_b"]), "not tested")
         cov = m.get("coverage", [])
         parts.append(
             f"**Model performance vs naive baseline** ({meta.get('test_rows_per_model', hgb.get('n', 0)):,} stock-days, "
-            f"{meta.get('test_start', '')} to {meta.get('test_end', '')}). HistGradientBoosting: MAE "
+            f"{meta.get('test_start', '')} to {meta.get('test_end', '')}). {name}: MAE "
             f"{hgb['mae_pct']:.3f} % points, directional accuracy {hgb['direction_acc_pct']:.1f}%. Naive baseline: MAE "
             f"{nv['mae_pct']:.3f}, directional accuracy {nv['direction_acc_pct']:.1f}% (a zero forecast is only right "
             f"on a zero gap). Historical average: MAE {ha['mae_pct']:.3f}, {ha['direction_acc_pct']:.1f}%. The model cuts "
             f"the naive error by {improvement:.1f}%. Linear Regression: MAE {lr['mae_pct']:.3f}, "
-            f"{lr['direction_acc_pct']:.1f}%; HistGradientBoosting vs Linear Regression: {verdict.lower()}, so the "
-            f"simpler model is about as good on average."
+            f"{lr['direction_acc_pct']:.1f}%; HistGradientBoosting vs Linear Regression: {verdict.lower()}."
             + (f" The 10-90% interval covered {min(cov):.0f}-{max(cov):.0f}% of actual gaps per test period "
                f"(target 80%)." if cov else ""))
     w, bt, mc = m.get("weekly"), m.get("backtest"), m.get("mc")

@@ -15,7 +15,7 @@ from capstone.charts import DOWN, MUTED, UP, style
 
 # Fixed categorical order (validated reference palette, light mode).
 MODEL_COLORS = {"naive": "#2a78d6", "historical_average": "#eb6834", "linear_regression": "#1baf7a",
-                "hist_gradient_boosting": "#6250d6", "zero": "#2a78d6"}
+                "hist_gradient_boosting": "#6250d6", "forecast": "#e0a030", "zero": "#2a78d6"}
 STRATEGY_COLORS = {"A": "#2a78d6", "B": "#eb6834", "H": "#8a8984"}
 TRADABLE, NOT_TRADABLE = "#16a34a", "#b4b2a9"
 ACTUAL = "#2b2b2b"
@@ -47,7 +47,7 @@ def predicted_vs_actual(df: pd.DataFrame, labels: dict[str, str]) -> go.Figure:
         g = g.sort_values("date")
         fig.add_trace(go.Scatter(x=g["date"], y=g["pred"] * 100, name=labels.get(m, m), mode="lines",
                                  line=dict(color=MODEL_COLORS.get(m), width=1.8),
-                                 visible=True if m in ("hist_gradient_boosting", "linear_regression") else "legendonly",
+                                 visible=True if m in ("forecast", "hist_gradient_boosting") else "legendonly",
                                  hovertemplate=f"{labels.get(m, m)} %{{y:+.2f}}%<extra></extra>"))
     fig.add_hline(y=0, line=dict(color=MUTED, width=1))
     fig.update_layout(bargap=0.05)
@@ -106,7 +106,7 @@ def rolling_lines(roll: dict[str, pd.DataFrame], column: str, title: str, y_titl
     fig = _fig(title, y_title, legend_top=False, height=460)
     for m, r in roll.items():
         fig.add_trace(go.Scatter(x=r["date"], y=r[column], name=labels.get(m, m), mode="lines",
-                                 line=dict(color=MODEL_COLORS.get(m), width=2 if m == "hist_gradient_boosting" else 1.5),
+                                 line=dict(color=MODEL_COLORS.get(m), width=2 if m == "forecast" else 1.5),
                                  hovertemplate=f"{labels.get(m, m)} %{{y:.2f}}<extra></extra>"))
     if "direction" in column:
         fig.add_hline(y=50, line=dict(color=MUTED, dash="dash", width=1), annotation_text="Coin flip 50%",

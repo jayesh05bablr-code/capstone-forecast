@@ -12,7 +12,7 @@ def _oos(n=200, hit=0.7, size=0.003, seed=0):
     actual = rng.choice([-1, 1], n) * 0.004
     right = rng.random(n) < hit
     pred = np.where(right, np.sign(actual), -np.sign(actual)) * size
-    return pd.DataFrame({"model": "hist_gradient_boosting", "pred": pred, "actual": actual})
+    return pd.DataFrame({"model": "forecast", "pred": pred, "actual": actual})
 
 
 def test_confidence_uses_past_hit_rate_for_same_size_forecasts():

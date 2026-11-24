@@ -21,7 +21,7 @@ import pandas as pd
 
 from . import costs
 
-MODEL = "hist_gradient_boosting"
+MODEL = "forecast"  # model_eval.FORECAST: the model the app forecasts with
 # Buckets of |forecast gap| in % points. Bigger forecasts are rarer but usually more reliable.
 BUCKETS = [0.0, 0.10, 0.25, 0.50, 1.00, np.inf]
 BUCKET_LABELS = ["under 0.10%", "0.10-0.25%", "0.25-0.50%", "0.50-1.00%", "over 1.00%"]
