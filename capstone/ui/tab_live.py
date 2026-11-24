@@ -102,26 +102,19 @@ def stock_tiles(preds: pd.DataFrame, quotes: dict, bars: dict) -> str:
             + "</div>") if out else ""
 
 
-def _candles(sym: str, today: pd.DataFrame, prev_close: float, pred_open: float | None, cfg) -> None:
-    """Today's 1-minute candles for one stock, with the opening range, previous close and forecast open."""
+def _candles(sym: str, today: pd.DataFrame, prev_close: float, pred_open: float | None, cfg, source: str = "") -> None:
+    """Today's candles for one stock in a TradingView-style chart: volume, VWAP/EMA, opening range, levels."""
     if today.empty:
         st.info(f"No 1-minute candles for {sym} yet today.")
         return
     from capstone import intraday
+    from capstone.ui import tv_chart
     day = today["datetime"].dt.date.iloc[0]
     orr = intraday.opening_range(today, day, cfg.or_min)
-    trade = None
-    if orr is not None:
-        start = pd.Timestamp(day) + pd.Timedelta(hours=9, minutes=15)
-        trade = {"or_high": orr["high"], "or_low": orr["low"], "or_end": start + pd.Timedelta(minutes=cfg.or_min)}
-    fig = charts.intraday_chart(today, f"{sym}: 1-minute candles, {day:%a %d %b}", trade, price_height=460)
-    fig.update_layout(title_text="", margin=dict(t=36))  # the card header above already names the chart
-    for label, value, color in (("Prev close", prev_close, "#888"), ("Forecast open", pred_open, "#6250d6")):
-        if value:
-            fig.add_hline(y=value, line=dict(color=color, width=1, dash="dot"), row=1, col=1,
-                          annotation=dict(text=f"{label} {value:,.2f}", font=dict(size=11, color=color)),
-                          annotation_position="bottom left")
-    st.plotly_chart(fig, use_container_width=True, config=CHART_CONFIG)
+    rng = {"high": float(orr["high"]), "low": float(orr["low"])} if orr is not None else None
+    tv_chart.render(sym, today, prev_close=float(prev_close) if prev_close else None,
+                    pred_open=float(pred_open) if pred_open else None, opening_range=rng, dark=True, height=540,
+                    source=source)
 
 
 def _pressure_chart(today: pd.DataFrame, prev_close: float, sym: str):
@@ -192,7 +185,7 @@ def _body(preds: pd.DataFrame) -> None:
                        "in a few minutes.")
         return
     syms = [s for s in preds["symbol"] if s in bars]
-    sym = st.segmented_control("1-minute chart for", syms, default=syms[0], key="live_sym") or syms[0]
+    sym = st.segmented_control("Chart for", syms, default=syms[0], key="live_sym") or syms[0]
     b = bars[sym]
     today = live.session(b)
     older = b[b["datetime"].dt.date < today["datetime"].dt.date.iloc[0]] if len(today) else b
@@ -211,7 +204,7 @@ def _body(preds: pd.DataFrame) -> None:
 
     left, right = st.columns([2.1, 1], gap="medium")
     with left, st.container(border=True):
-        st.markdown(f'<div class="p8-h">{_e(sym)} · 1-minute candles, {today["datetime"].iloc[0]:%a %d %b}</div><div class="p8-cap">Opening range, previous '
+        st.markdown(f'<div class="p8-h">{_e(sym)} · intraday chart, {today["datetime"].iloc[0]:%a %d %b}</div><div class="p8-cap">1, 3, 5 or 15-minute candles with volume, VWAP and EMAs; opening range, previous '
                     'close and forecast open marked</div>', unsafe_allow_html=True)
         _candles(sym, today, prev_close, pred, cfg)
         if note:
