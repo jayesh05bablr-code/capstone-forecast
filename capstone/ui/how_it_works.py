@@ -12,7 +12,7 @@ DIAGRAM = Path(__file__).resolve().parents[2] / "docs" / "pipeline_diagram.png"
 STEPS = [
     ("1. Data comes in", "Official NSE prices (daily Bhavcopy and near-live quotes) with Yahoo Finance as a backup, "
                          "last night's US market and the rupee (Twelve Data, Alpha Vantage as backup), and company "
-                         "fundamentals from Excel files."),
+                         "data from Bloomberg and Tracxn, exported as Excel files."),
     ("2. The model forecasts", "Python turns that data into features and a scikit-learn model predicts each stock's "
                                "next-day opening price with a likely low-high range. It retrains when the data changes."),
     ("3. You see the result", "This app shows the forecast on the Today page, plus live prices, market flow, "
