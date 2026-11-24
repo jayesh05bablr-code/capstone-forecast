@@ -28,7 +28,7 @@ _Click the picture to open it full size._
 
 **Top:** code is written in VS Code, tested and merged on GitHub, and every merge redeploys the app on Streamlit
 Cloud (API keys in Streamlit Secrets; a GitHub Action keeps the app awake). **Bottom:** official NSE prices (Yahoo Finance as
-backup), the overnight US market and rupee, and company fundamentals feed a scikit-learn model that forecasts each stock's next
+backup), the overnight US market and rupee, and company data from Bloomberg and Tracxn (Excel exports) feed a scikit-learn model that forecasts each stock's next
 opening price with a likely range; Supabase logs every forecast against the actual open. The Ask the market page uses Groq AI with
 the NSE MCP tools. Snowflake (dotted) is
 future scope only. The same picture is on the app's **How it works** page.
