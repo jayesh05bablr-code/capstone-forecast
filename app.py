@@ -15,14 +15,13 @@ codeversion.reload_if_changed()  # pick up a new deploy's code without rebooting
 
 from capstone import autorun, env, refresh  # noqa: E402
 from capstone.paths import PROCESSED, SYNTHETIC_FLAG
-from capstone.ui import (assumptions, common, glossary, headline, home, how_it_works, market_status, tab_accuracy,
+from capstone.ui import (assumptions, common, glossary, headline, home, how_it_works, market_status, tab_accuracy, terminal,
                          tab_ask, tab_backtest, tab_company, tab_download, tab_flow, tab_forecast, tab_insights, tab_invest, tab_live, tab_montecarlo,
                          tab_rupee, tab_scalping, tab_sectors, tab_uploads, tab_weekly)
 
-st.set_page_config(page_title="Pulse8 · India opening forecast", page_icon="📈", layout="wide", initial_sidebar_state="expanded")
+st.set_page_config(page_title="Pulse8 · India opening forecast", page_icon="📈", layout="wide", initial_sidebar_state="auto")
 env.load_streamlit_secrets()  # keys from the Secrets box when hosted on Streamlit Community Cloud
-st.title("Pulse8")
-st.caption("The market's pulse before the bell: India market opening forecast for the 09:15 IST open.")
+terminal.header()  # brand bar + scrolling NSE ticker ribbon on every page
 market_status.banner()  # "Market closed today: <holiday>" on NSE holidays and weekends
 
 # Keep the forecast current without a terminal: fetch, (re)train and predict when an update is due.
@@ -139,7 +138,9 @@ def _stock_details() -> None:
 
 # key (used by links such as the stock panel's "nav_to") -> (menu section, menu title, icon, url, page body)
 ROUTES = {
-    "Today (start here)": ("Start", "Today (start here)", ":material/today:", "today", lambda: home.render(preds, story, moves)),
+    "Market terminal": ("Start", "Market terminal", ":material/grid_view:", "terminal",
+                        lambda: __import__("capstone.ui.tab_terminal", fromlist=["render"]).render(preds, story)),
+    "Today (start here)": ("Start", "Today (beginner's view)", ":material/today:", "today", lambda: home.render(preds, story, moves)),
     "Market overview": ("Start", "Market overview · morning brief", ":material/dashboard:", "overview",
                         lambda: __import__("capstone.ui.tab_overview", fromlist=["render"]).render(preds, story, moves)),
     "How it works": ("Start", "How it works", ":material/schema:", "how-it-works", how_it_works.render),
@@ -177,10 +178,10 @@ def _page(key: str):
 
     def run():
         if key in PLAIN:
-            st.info(f"**In plain words:** {PLAIN[key]}")
+            terminal.plain(PLAIN[key])
         body()
     run.__name__ = url.replace("-", "_")
-    return st.Page(run, title=title, icon=icon, url_path=url, default=(key == "Today (start here)"))
+    return st.Page(run, title=title, icon=icon, url_path=url, default=(key == "Market terminal"))
 
 
 PAGE_OBJS = {k: _page(k) for k in ROUTES}
