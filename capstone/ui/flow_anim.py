@@ -60,6 +60,18 @@ def _cr(v: float, sign: bool = False) -> str:
     return f"{'+' if sign and v > 0 else '−' if sign and v < 0 else ''}₹{abs(v):,.0f} cr"
 
 
+# How band sizes are written for each flow metric (see market_flow.with_metric).
+UNITS = {"value": "₹ crore traded", "volume": "lakh shares traded", "pressure": "₹ crore of net pressure (est.)"}
+
+
+def fmt(v: float, unit: str = "value", sign: bool = False) -> str:
+    """A band size in the chart's unit: ₹ crore, or lakh shares for the volume metric."""
+    if unit == "volume":
+        s = '+' if sign and v > 0 else '−' if sign and v < 0 else ''
+        return f"{s}{abs(v):,.1f} L sh" if abs(v) < 100 else f"{s}{abs(v):,.0f} L sh"
+    return _cr(v, sign)
+
+
 def _e(text) -> str:
     return html.escape(str(text))
 
@@ -75,18 +87,24 @@ def _surges(snap: pd.DataFrame, pace: pd.Series | None) -> set[str]:
 
 
 def _weighted_pct(df: pd.DataFrame) -> float:
-    tv = float(df["turnover_cr"].sum())
-    return float((df["pct_change"] * df["turnover_cr"]).sum() / tv) if tv else 0.0
+    """% change weighted by traded value (the real ₹ value, whichever metric sizes the bands)."""
+    w = df["value_cr"] if "value_cr" in df else df["turnover_cr"]
+    tv = float(w.sum())
+    return float((df["pct_change"] * w).sum() / tv) if tv else 0.0
 
 
 def stock_tip(r, pace: pd.Series | None = None, hot: bool = False) -> str:
     """Hover text for one stock: price, change, traded value, VWAP, range and the buy/sell split."""
-    bp = 100 * r["buy_cr"] / r["turnover_cr"] if r["turnover_cr"] else 50
+    value = r["value_cr"] if "value_cr" in r and pd.notna(r.get("value_cr")) else r["turnover_cr"]
+    pos = r.get("position", 0) if pd.notna(r.get("position", 0)) else 0
+    bp = 50 * (1 + pos)
     lines = [f"<b>{_e(r['symbol'])}</b> · {_e(r.get('name', ''))} · {_e(r.get('sector', ''))}",
              f"Price ₹{r['ltp']:,.2f} ({r['pct_change']:+.2f}% today)"]
     if _num(r.get("prev_close")):
         lines.append(f"Previous close ₹{r['prev_close']:,.2f} · Day range ₹{r['low']:,.2f} – ₹{r['high']:,.2f}")
-    lines.append(f"Traded value {_cr(r['turnover_cr'])} · Volume {r['volume']:,.0f}")
+    lines.append(f"Traded value {_cr(value)} · Volume {r['volume']:,.0f}")
+    if _num(r.get("rvol")):
+        lines.append(f"Relative volume {r['rvol']:.2f}× its 20-session average")
     if _num(r.get("vwap")):
         lines.append(f"VWAP ₹{r['vwap']:,.2f} (price {100 * (r['ltp'] / r['vwap'] - 1):+.2f}% vs VWAP)")
     lines.append(f"Estimated split: {bp:.0f}% buyer-driven, {100 - bp:.0f}% seller-driven")
@@ -96,13 +114,16 @@ def stock_tip(r, pace: pd.Series | None = None, hot: bool = False) -> str:
 
 
 def sector_flow_data(snap: pd.DataFrame, sectors: pd.DataFrame, pace: pd.Series | None = None,
-                     top: int = 14, focus: str | None = None) -> dict:
+                     top: int = 14, focus: str | None = None, unit: str = "value", rank_by: str = "turnover_cr",
+                     title_note: str = "", period_word: str = "today") -> dict:
     """Sectors (left) -> buyers / sellers in control (middle) -> the most traded stocks (right). ESTIMATE.
 
     Every stock's traded value is split into an estimated buyer-driven and seller-driven part (see
     market_flow.snapshot), so both sides always have weight, even on a day when nearly everything fell.
     With focus=<sector>, only that sector is drawn and every one of its stocks is named.
     """
+    def cr(v, sign=False):
+        return fmt(v, unit, sign)
     if focus:
         snap = snap[snap["sector"] == focus]
         sectors = sectors[sectors["sector"] == focus]
@@ -116,48 +137,49 @@ def sector_flow_data(snap: pd.DataFrame, sectors: pd.DataFrame, pace: pd.Series 
         nodes.append({"col": 0, "label": r["sector"], "sub": f"{bp:.0f}% buy", "chg": float(r["pct_change"]),
                       "color": buy_color(bp), "kind": "sector", "id": r["sector"],
                       "tip": f"<b>{_e(r['sector'])}</b> ({int(r['stocks'])} stocks: {int(r['up'])} up, "
-                             f"{int(r['down'])} down)<br>Traded value {_cr(r['turnover_cr'])} · "
+                             f"{int(r['down'])} down)<br>Traded value {cr(r['turnover_cr'])} · "
                              f"price change {r['pct_change']:+.2f}% (value-weighted)<br>"
-                             f"Buyer-driven (est.) {_cr(r['buy_cr'])} ({bp:.0f}%)<br>"
-                             f"Seller-driven (est.) {_cr(r['sell_cr'])} ({100 - bp:.0f}%)"})
+                             f"Buyer-driven (est.) {cr(r['buy_cr'])} ({bp:.0f}%)<br>"
+                             f"Seller-driven (est.) {cr(r['sell_cr'])} ({100 - bp:.0f}%)"})
     buy_total, sell_total = float(secs["buy_cr"].sum()), float(secs["sell_cr"].sum())
     all_ = buy_total + sell_total or 1
     hub_buy, hub_sell = len(nodes), len(nodes) + 1
-    nodes.append({"col": 1, "label": "Buyers in control", "sub": f"{_cr(buy_total)} · {100 * buy_total / all_:.0f}%",
+    nodes.append({"col": 1, "label": "Buyers in control", "sub": f"{cr(buy_total)} · {100 * buy_total / all_:.0f}%",
                   "color": UP, "big": True, "subColor": UP_TEXT,
-                  "tip": f"<b>Buyer-driven trading (estimate)</b><br>{_cr(buy_total)}, "
+                  "tip": f"<b>Buyer-driven trading (estimate)</b><br>{cr(buy_total)}, "
                          f"{100 * buy_total / all_:.0f}% of all traded value"})
-    nodes.append({"col": 1, "label": "Sellers in control", "sub": f"{_cr(sell_total)} · {100 * sell_total / all_:.0f}%",
+    nodes.append({"col": 1, "label": "Sellers in control", "sub": f"{cr(sell_total)} · {100 * sell_total / all_:.0f}%",
                   "color": DOWN, "big": True, "subColor": DOWN_TEXT,
-                  "tip": f"<b>Seller-driven trading (estimate)</b><br>{_cr(sell_total)}, "
+                  "tip": f"<b>Seller-driven trading (estimate)</b><br>{cr(sell_total)}, "
                          f"{100 * sell_total / all_:.0f}% of all traded value"})
     for i, (_, r) in enumerate(secs.iterrows()):
         one_sided = abs(r["buy_cr"] - r["sell_cr"]) / r["act"]
         for hub, val, color, side in ((hub_buy, r["buy_cr"], UP, "buyers"), (hub_sell, r["sell_cr"], DOWN, "sellers")):
             if val > 0:
                 links.append({"source": i, "target": hub, "value": float(val), "color": color, "speed": one_sided,
-                              "tip": f"<b>{_e(r['sector'])}</b> → {side} in control<br>{_cr(val)} "
+                              "tip": f"<b>{_e(r['sector'])}</b> → {side} in control<br>{cr(val)} "
                                      f"({100 * val / r['act']:.0f}% of the sector, estimate)"})
-    shown = snap.nlargest(top, "turnover_cr")
+    shown = snap.nlargest(top, rank_by if rank_by in snap else "turnover_cr")
     for _, r in shown.iterrows():
         idx = len(nodes)
         hot = r["symbol"] in surge
         bp = 100 * r["buy_cr"] / r["turnover_cr"]
         tip = stock_tip(r, pace, hot)
-        nodes.append({"col": 2, "label": r["symbol"], "sub": f"{bp:.0f}% buy", "chg": float(r["pct_change"]),
+        sub = f"net {cr(r['buy_cr'] - r['sell_cr'], True)}" if unit == "pressure" else f"{bp:.0f}% buy"
+        nodes.append({"col": 2, "label": r["symbol"], "sub": sub, "chg": float(r["pct_change"]),
                       "chgDp": 1, "color": buy_color(bp), "surge": hot, "tip": tip, "kind": "stock", "id": r["symbol"]})
         for hub, val, color, side in ((hub_buy, r["buy_cr"], UP, "buyers"), (hub_sell, r["sell_cr"], DOWN, "sellers")):
             if val > 0:
                 links.append({"source": hub, "target": idx, "value": float(val), "color": color,
                               "speed": float(abs(r["position"])), "surge": hot,
-                              "tip": f"<b>{_e(r['symbol'])}</b>: {_cr(val)} {side}-driven (estimate)<br>"
+                              "tip": f"<b>{_e(r['symbol'])}</b>: {cr(val)} {side}-driven (estimate)<br>"
                                      f"Price {r['pct_change']:+.2f}% today"})
     rest = snap[~snap["symbol"].isin(shown["symbol"])]
     if len(rest):
         idx = len(nodes)
         v = float(rest["turnover_cr"].sum())
         bp = 100 * float(rest["buy_cr"].sum()) / v
-        tip = (f"<b>{len(rest)} other stocks</b><br>Traded {_cr(v)}: about {bp:.0f}% buyer-driven<br>"
+        tip = (f"<b>{len(rest)} other stocks</b><br>Traded {cr(v)}: about {bp:.0f}% buyer-driven<br>"
                f"Price change {_weighted_pct(rest):+.2f}% (value-weighted)")
         nodes.append({"col": 2, "label": f"Other {len(rest)} stocks", "sub": f"{bp:.0f}% buy",
                       "chg": _weighted_pct(rest), "chgDp": 1, "color": NEUTRAL, "tip": tip})
@@ -166,37 +188,41 @@ def sector_flow_data(snap: pd.DataFrame, sectors: pd.DataFrame, pace: pd.Series 
                 links.append({"source": hub, "target": idx, "value": float(val), "color": color,
                               "speed": float(rest["position"].abs().mean()), "tip": tip})
     legend = [{"color": UP, "text": "Buyer-driven (est.)"}, {"color": DOWN, "text": "Seller-driven (est.)"},
-              {"text": "Thickness = ₹ traded"}, {"text": "Dot speed = how one-sided"}]
+              {"text": f"Thickness = {UNITS[unit]}"}, {"text": "Dot speed = how one-sided"}]
     if pace is not None and len(pace):
         legend.append({"color": "#f2b84b", "text": "Glow = 2.5×+ usual pace this minute"})
     rows = max(len(secs), min(top, len(snap)) + 1)
-    return {"title": "BUYER VS SELLER CONTROL" + (f" · {focus.upper()}" if focus else ""),
+    return {"title": "BUYER VS SELLER CONTROL" + (f" · {focus.upper()}" if focus else "") + title_note,
             "nodes": nodes, "links": links, "legend": legend, "estimate": True, "focus": focus,
             "height": max(460, 31 * rows), "padLeft": 230, "padRight": 230, "gap": 7,
             "upText": UP_TEXT, "downText": DOWN_TEXT,
             "note": "Each stock's traded value is split into a buyer-driven and a seller-driven part by where its "
-                    "price sits in today's range (an <b>estimate</b> from prices, not reported institutional orders). "
-                    "% next to each name is the price change today. Click a sector to see all its stocks, or a "
+                    "price sits in the day's range" + ("" if period_word == "today" else ", day by day, added up") +
+                    " (an <b>estimate</b> from prices, not reported institutional orders). "
+                    f"% next to each name is the price change {period_word}. Click a sector to see all its stocks, or a "
                     "stock for its panel."}
 
 
 def volume_flow_data(snap: pd.DataFrame, pace: pd.Series | None = None, top: int = 20,
-                     focus: str | None = None) -> dict:
+                     focus: str | None = None, unit: str = "value", rank_by: str = "turnover_cr",
+                     title_note: str = "", period_word: str = "today") -> dict:
     """All stocks (left) -> sectors (middle) -> the most traded stocks (right). MEASURED traded value.
 
     With focus=<sector>, the chart becomes that sector (left) -> every one of its stocks (right).
     """
+    def cr(v, sign=False):
+        return fmt(v, unit, sign)
     surge = _surges(snap, pace)
     if focus:
         snap = snap[snap["sector"] == focus]
         top = len(snap)
     total = float(snap["turnover_cr"].sum())
-    keep = set(snap.nlargest(top, "turnover_cr")["symbol"])
+    keep = set(snap.nlargest(top, rank_by if rank_by in snap else "turnover_cr")["symbol"])
     nodes, links, stock_nodes = [], [], []
     if not focus:
-        nodes.append({"col": 0, "label": "All stocks", "sub": _cr(total), "chg": _weighted_pct(snap),
+        nodes.append({"col": 0, "label": "All stocks", "sub": cr(total), "chg": _weighted_pct(snap),
                       "color": HUB, "big": True, "align": "right",
-                      "tip": f"<b>{len(snap)} stocks in this view</b><br>Traded value {_cr(total)}<br>"
+                      "tip": f"<b>{len(snap)} stocks in this view</b><br>Traded value {cr(total)}<br>"
                              f"Price change {_weighted_pct(snap):+.2f}% (value-weighted)"})
     order = snap.groupby("sector")["turnover_cr"].sum().sort_values(ascending=False)
     col_sec = 0 if focus else 1
@@ -205,15 +231,16 @@ def volume_flow_data(snap: pd.DataFrame, pace: pd.Series | None = None, top: int
         pct = _weighted_pct(part)
         up, down = int((part["pct_change"] > 0).sum()), int((part["pct_change"] < 0).sum())
         si = len(nodes)
-        nodes.append({"col": col_sec, "label": sec, "sub": _cr(tv), "chg": pct, "color": pct_color(pct),
+        sc = buy_color(100 * part["buy_cr"].sum() / tv) if unit == "pressure" else pct_color(pct)
+        nodes.append({"col": col_sec, "label": sec, "sub": cr(tv), "chg": pct, "color": sc,
                       "kind": None if focus else "sector", "id": sec, "big": bool(focus),
                       "tip": f"<b>{_e(sec)}</b> ({len(part)} stocks: {up} up, {down} down)<br>Traded value "
-                             f"{_cr(tv)} ({100 * tv / total:.1f}% of this view)<br>"
+                             f"{cr(tv)} ({100 * tv / total:.1f}% of this view)<br>"
                              f"Price change {pct:+.2f}% (value-weighted)"})
         if not focus:
-            links.append({"source": 0, "target": si, "value": float(tv), "color": pct_color(pct), "colorFrom": HUB,
+            links.append({"source": 0, "target": si, "value": float(tv), "color": sc, "colorFrom": HUB,
                           "speed": min(abs(pct) / PCT_FULL, 1),
-                          "tip": f"<b>{_e(sec)}</b>: {_cr(tv)} traded, {100 * tv / total:.1f}% of all<br>"
+                          "tip": f"<b>{_e(sec)}</b>: {cr(tv)} traded, {100 * tv / total:.1f}% of all<br>"
                                  f"{pct:+.2f}% today"})
         shown = part[part["symbol"].isin(keep)].sort_values("turnover_cr", ascending=False)
         for _, r in shown.iterrows():
@@ -222,35 +249,39 @@ def volume_flow_data(snap: pd.DataFrame, pace: pd.Series | None = None, top: int
         if len(rest):
             v = float(rest["turnover_cr"].sum())
             stock_nodes.append((si, {"symbol": f"{len(rest)} other", "turnover_cr": v,
+                                     "buy_cr": float(rest["buy_cr"].sum()),
                                      "pct_change": _weighted_pct(rest), "other": True, "names": list(rest["symbol"])}))
     for si, r in stock_nodes:
         idx = len(nodes)
         other = bool(r.get("other"))
         hot = not other and r["symbol"] in surge
-        c = pct_color(r["pct_change"])
+        c = buy_color(100 * r["buy_cr"] / r["turnover_cr"]) if unit == "pressure" else pct_color(r["pct_change"])
         if other:
             names = ", ".join(r["names"][:12]) + ("…" if len(r["names"]) > 12 else "")
             tip = (f"<b>{_e(r['symbol'])} stocks</b> in {_e(nodes[si]['label'])}<br>{_e(names)}<br>"
-                   f"Traded {_cr(r['turnover_cr'])} · {r['pct_change']:+.2f}% (value-weighted)")
+                   f"Traded {cr(r['turnover_cr'])} · {r['pct_change']:+.2f}% (value-weighted)")
         else:
             tip = stock_tip(r, pace, hot)
-        nodes.append({"col": col_sec + 1, "label": r["symbol"], "sub": _cr(r["turnover_cr"]), "chg": float(r["pct_change"]),
+        nodes.append({"col": col_sec + 1, "label": r["symbol"], "sub": cr(r["turnover_cr"]), "chg": float(r["pct_change"]),
                       "chgDp": 1, "color": NEUTRAL if other else c, "surge": hot, "tip": tip,
                       "kind": "sector" if other else "stock", "id": nodes[si]["label"] if other else r["symbol"]})
         links.append({"source": si, "target": idx, "value": float(r["turnover_cr"]), "color": c,
                       "speed": min(abs(r["pct_change"]) / PCT_FULL, 1), "surge": hot, "tip": tip})
-    legend = [{"color": UP, "text": "Up today"}, {"color": DOWN, "text": "Down today"},
-              {"color": NEUTRAL, "text": "Flat"}, {"text": "Thickness = ₹ crore traded"},
+    legend = ([{"color": UP, "text": "Net buying (est.)"}, {"color": DOWN, "text": "Net selling (est.)"}]
+              if unit == "pressure" else
+              [{"color": UP, "text": "Price up"}, {"color": DOWN, "text": "Price down"}, {"color": NEUTRAL, "text": "Flat"}]) + [{"text": f"Thickness = {UNITS[unit]}"},
               {"text": "Dot speed = size of % move"}]
     if pace is not None and len(pace):
         legend.append({"color": "#f2b84b", "text": "Glow = 2.5×+ usual pace this minute"})
     rows = sum(n["col"] == col_sec + 1 for n in nodes)
-    return {"title": "CAPITAL DISTRIBUTION" + (f" · {focus.upper()}" if focus else ""),
-            "nodes": nodes, "links": links, "legend": legend, "estimate": False, "focus": focus,
+    return {"title": "CAPITAL DISTRIBUTION" + (f" · {focus.upper()}" if focus else "") + title_note,
+            "nodes": nodes, "links": links, "legend": legend, "estimate": unit == "pressure", "focus": focus,
             "height": max(500, 23 * rows), "padLeft": 120 if not focus else 200, "padRight": 230, "gap": 5,
             "upText": UP_TEXT, "downText": DOWN_TEXT,
-            "note": "Traded value (turnover reported by NSE) splitting into sectors, then into the busiest stocks. "
-                    "Labels show ₹ crore traded and the price change today. Click a sector (or an 'other' group) to "
+            "note": {"value": "Traded value (turnover reported by NSE)", "volume": "Traded volume (shares, reported by NSE)",
+                     "pressure": "Estimated net buying or selling pressure (an <b>estimate</b> from prices)"}[unit]
+                    + " splitting into sectors, then into the busiest stocks. "
+                    f"Labels show the band size and the price change {period_word}. Click a sector (or an 'other' group) to "
                     "see all its stocks, or a stock for its panel."}
 
 
