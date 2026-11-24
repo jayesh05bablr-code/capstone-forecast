@@ -56,12 +56,12 @@ project folder while `.env` is inside it.**
 
 1. Push the code to GitHub (public repo `jayesh05bablr-code/capstone-forecast`). Check that no `.env` or
    `secrets.toml` is in the commit (`git status` must not list them).
-2. On https://share.streamlit.io open the app **pri-capstone** > **Settings > General**: Python 3.12, main file
+2. On https://share.streamlit.io open the app **pulse8** > **Settings > General**: Python 3.12, main file
    `app.py`. (New app: **Create app > Deploy a public app from GitHub**, pick the repo, branch and `app.py`.)
 3. **Settings > Secrets**: paste the contents of `.streamlit/secrets.toml.example` with your real values.
 4. Save. The app restarts; the first start downloads prices, trains (about a minute with the weekly analysis) and
    predicts.
-5. Verify before calling it deployed: open https://pri-capstone.streamlit.app in a private window, check that the
+5. Verify before calling it deployed: open https://pulse8.streamlit.app in a private window, check that the
    seven tabs load (Morning forecast, Model accuracy, Weekly analysis, Backtesting, Monte Carlo, Business
    insights, More tools), that the sidebar shows "Last update ... OK", and that **Download data** builds the
    workbook.

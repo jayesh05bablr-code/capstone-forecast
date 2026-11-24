@@ -19,9 +19,10 @@ from capstone.ui import (assumptions, common, glossary, headline, home, how_it_w
                          tab_company, tab_download, tab_flow, tab_forecast, tab_insights, tab_invest, tab_live, tab_montecarlo,
                          tab_rupee, tab_scalping, tab_sectors, tab_uploads, tab_weekly)
 
-st.set_page_config(page_title="India Opening Forecast", layout="wide", initial_sidebar_state="expanded")
+st.set_page_config(page_title="Pulse8 · India opening forecast", page_icon="📈", layout="wide", initial_sidebar_state="expanded")
 env.load_streamlit_secrets()  # keys from the Secrets box when hosted on Streamlit Community Cloud
-st.title("India market opening forecast")
+st.title("Pulse8")
+st.caption("The market's pulse before the bell: India market opening forecast for the 09:15 IST open.")
 
 # Keep the forecast current without a terminal: fetch, (re)train and predict when an update is due.
 pred_path = PROCESSED / "predictions.csv"

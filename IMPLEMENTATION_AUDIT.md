@@ -6,7 +6,7 @@ Audit date: 17 Nov 2026. Written before any code was changed (Phase 1 of the rev
 
 | Source | What it is | Notes |
 | --- | --- | --- |
-| GitHub `jayesh05bablr-code/capstone-forecast` (public) | The deployed code (Streamlit Community Cloud, https://pri-capstone.streamlit.app) | 14 commits, all made on 4 Nov 2026 through the GitHub web uploader ("Add files via upload"), plus two edits to `keep-awake.yml`. Cloned read-only; this session has no GitHub write access. |
+| GitHub `jayesh05bablr-code/capstone-forecast` (public) | The deployed code (Streamlit Community Cloud, https://pulse8.streamlit.app) | 14 commits, all made on 4 Nov 2026 through the GitHub web uploader ("Add files via upload"), plus two edits to `keep-awake.yml`. Cloned read-only; this session has no GitHub write access. |
 | Project folder `capstone_online/` | The latest working copy | Differs from GitHub in three files: `capstone/live.py` (Yahoo `period="2d"` vs `"5d"`), `capstone/ui/tab_download.py` (cached sheet sizes) and `.github/workflows/keep-awake.yml`; it also has `.streamlit/` (the web uploader skips dot-folders). The upgrade starts from this copy. |
 | Local laptop copy `Downloads\capstone-forecast-main` | GitHub zip plus real data | Has real NSE prices (5 stocks, 1 Jan 2015 to 13 Nov 2026, 2,941 sessions each), US closes (SPY, QQQ, 11 sector ETFs, ADRs INFY/HDB/IBN from 2006), USD/INR history, a trained model, the walk-forward report and a 5-row prediction log. Also holds a local `.env` (not read, not copied). |
 | Older copies `capstone/`, `capstone_refactored/`, zips | Earlier versions | Superseded; kept as is. |
