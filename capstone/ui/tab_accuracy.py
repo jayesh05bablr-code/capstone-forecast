@@ -51,6 +51,23 @@ def _filters(oos: pd.DataFrame):
     return sel, stock, models, default_lo
 
 
+def _nse_note() -> None:
+    """Whether NSE's market inputs (NIFTY 50, India VIX, breadth) made it into the saved model, and why."""
+    import json
+    f = MODELS / "nse_inputs.json"
+    if not f.exists():
+        return
+    try:
+        c = json.loads(f.read_text())
+    except ValueError:
+        return
+    verdict = ("so the model **uses** them" if c["used"] else
+               "so the saved model **leaves them out** and is retested at every retrain")
+    st.caption(f"NSE market inputs (NIFTY 50 move and opening gap, India VIX, advances/declines from NSE's MCP "
+               f"server): same model's average error {c['mape_with']:.3f}% with them vs {c['mape_without']:.3f}% "
+               f"without, on the same past test days, {verdict}.")
+
+
 def render(symbol: str) -> None:
     oos = data_cache.oos()
     if oos is None:
@@ -77,6 +94,7 @@ def render(symbol: str) -> None:
     c2.plotly_chart(charts_eval.metric_bars(table, "direction_acc_pct", "Directional accuracy (%, higher is better)",
                                             MODEL_LABELS), use_container_width=True, config=CHART_CONFIG)
 
+    _nse_note()
     tests = data_cache.models_csv("model_significance.csv")
     if tests is not None:
         st.markdown("**Is the difference real?** Diebold-Mariano test on absolute errors over all test days "

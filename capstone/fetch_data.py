@@ -125,6 +125,17 @@ def main() -> None:
             print(f"{symbol}: +{n} rows" + (f" ({used})" if used else ""))
         except tej_client.TejError as exc:
             print(f"{symbol}: skipped ({exc})")
+    # Market-wide model inputs from NSE's MCP server for every price date (see nse_market.py).
+    from . import nse_market
+    from .features import load_prices
+    try:
+        dates = load_prices()["date"].unique()
+        daily = nse_market.refresh(dates)
+        print(f"NSE market inputs: {len(daily)} sessions (NIFTY 50 and India VIX from "
+              f"{daily.dropna(subset=['nifty_close'])['date'].min():%Y-%m-%d}, breadth from "
+              f"{daily.dropna(subset=['advances'])['date'].min():%Y-%m-%d})" if len(daily) else "NSE market inputs: none")
+    except Exception as exc:  # the model still trains without them
+        print(f"NSE market inputs skipped: {exc}")
 
 
 if __name__ == "__main__":
