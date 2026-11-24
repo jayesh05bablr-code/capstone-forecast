@@ -101,6 +101,8 @@ PLAIN = {
                    "the upper hand. Box and band sizes are real traded money; the buying/selling split is an estimate.",
     "Sector intelligence": "Which sectors are beating the NIFTY 50 and which are gaining or losing that edge, from "
                            "NSE's official sector indices.",
+    "Institutional activity": "What foreign (FII/FPI) and domestic (DII) institutions bought and sold, the day's large "
+                              "deals and how much trading ended in delivery, as reported by NSE.",
     "Breadth and risk": "Whether a market move is broad (most stocks join in) or narrow (a few big stocks), and how "
                         "liquid and volatile each stock has been.",
     "Weekly analysis": "Would buying on Monday's open and selling on Friday's close have beaten the trading costs? "
@@ -144,6 +146,8 @@ ROUTES = {
     "Live market": ("Markets", "Live markets", ":material/monitoring:", "live", lambda: tab_live.render(preds)),
     "Market flow": ("Markets", "Market flow intelligence", ":material/account_tree:", "flow", tab_flow.render),
     "Sector intelligence": ("Markets", "Sector intelligence", ":material/donut_large:", "sectors", _lazy("tab_sector_intel")),
+    "Institutional activity": ("Markets", "Institutional activity", ":material/account_balance:", "institutional",
+                               _lazy("tab_institutional")),
     "Stock details": ("Forecasting", "Stock forecasting", ":material/insights:", "forecast", _stock_details),
     "Model accuracy": ("Forecasting", "Model accuracy", ":material/rule:", "accuracy", lambda: tab_accuracy.render(symbol)),
     "Weekly analysis": ("Forecasting", "Weekly analysis", ":material/date_range:", "weekly", lambda: _strategy("Weekly analysis")),
