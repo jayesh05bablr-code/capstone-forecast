@@ -39,7 +39,11 @@ import pandas as pd
 from capstone import nse_mcp
 from capstone.paths import DATA
 
-UNIVERSE_FILE = DATA / "nifty100_sectors.csv"
+UNIVERSE_FILE = DATA / "nifty500_sectors.csv"   # Nifty 500 with an "index" tag per stock
+OLD_UNIVERSE_FILE = DATA / "nifty100_sectors.csv"  # fallback if the bigger list is missing
+# Market universes the page can show, by the index tag in the universe file.
+UNIVERSES = {"NIFTY 50": ["NIFTY 50"], "NIFTY Next 50": ["NIFTY NEXT 50"],
+             "NIFTY 100": ["NIFTY 50", "NIFTY NEXT 50"], "NIFTY 500": ["NIFTY 50", "NIFTY NEXT 50", "NIFTY 500"]}
 WORKERS = 4  # parallel NSE calls; each one is mostly waiting on the network, not CPU
 FIELDS = {"lastTradedPrice": "ltp", "openPrice": "open", "highPrice": "high", "lowPrice": "low",
           "preClosePrice": "prev_close", "perChange": "pct_change", "volume": "volume", "value": "turnover_cr",
@@ -48,9 +52,16 @@ FIELDS = {"lastTradedPrice": "ltp", "openPrice": "open", "highPrice": "high", "l
 EXTRA_FIELDS = {"fiftyTwoWeekHigh": "high_52w", "fiftyTwoWeekLow": "low_52w", "perChange30d": "pct_30d"}
 
 
-def universe() -> pd.DataFrame:
-    """symbol, name, sector, index for the stocks shown on the page."""
-    return pd.read_csv(UNIVERSE_FILE).drop_duplicates("symbol")
+def universe(name: str | None = None) -> pd.DataFrame:
+    """symbol, name, sector, index for the stocks shown on the page (all of the Nifty 500 by default).
+
+    name picks one of UNIVERSES ("NIFTY 50", "NIFTY Next 50", "NIFTY 100", "NIFTY 500").
+    """
+    path = UNIVERSE_FILE if UNIVERSE_FILE.exists() else OLD_UNIVERSE_FILE
+    uni = pd.read_csv(path).drop_duplicates("symbol")
+    if name:
+        uni = uni[uni["index"].str.upper().isin(UNIVERSES[name])]
+    return uni.reset_index(drop=True)
 
 
 # A few long-lived MCP sessions, one per worker, so each call does not repeat the handshake.
@@ -65,15 +76,23 @@ def _sessions() -> list[nse_mcp._Session]:
     return _pool
 
 
-def _by_prefix(session: nse_mcp._Session, prefixes: list[str]) -> list[dict]:
+def _by_prefix(session: nse_mcp._Session, prefixes: list[str], wanted: set[str] | None = None) -> list[dict]:
     import json
     rows = []
-    for p in prefixes:
+    prefixes = list(prefixes)
+    while prefixes:
+        p = prefixes.pop(0)
         try:
             res = session.request("tools/call", {"name": "cm_get_equity_stocks",
                                                  "arguments": {"limit": 500, "symbolFilter": p}}, retries=1)
             text = "".join(c.get("text", "") for c in res.get("content", []) if c.get("type") == "text")
-            rows += json.loads(text).get("stocks", []) if not res.get("isError") else []
+            got = json.loads(text).get("stocks", []) if not res.get("isError") else []
+            if len(got) >= 500 and wanted:  # hit the cap: some stocks may be missing, ask again one letter deeper
+                prefixes += sorted({w[:len(p) + 1] for w in wanted if w.startswith(p) and len(w) > len(p)})
+                if any(w == p for w in wanted):
+                    rows += [r for r in got if r.get("symbol") == p]
+                continue
+            rows += got
         except (nse_mcp.NseMcpError, ValueError):
             continue  # one letter failing leaves those stocks out; the page says how many are missing
     return rows
@@ -84,10 +103,10 @@ def fetch_quotes(symbols: list[str]) -> pd.DataFrame:
     prefixes = sorted({s[0] for s in symbols})
     sessions = _sessions()
     groups = [prefixes[i::WORKERS] for i in range(WORKERS)]
-    with ThreadPoolExecutor(WORKERS) as ex:
-        parts = list(ex.map(_by_prefix, sessions, groups))
     wanted = set(symbols)
-    rows = [r for part in parts for r in part if r.get("symbol") in wanted and r.get("series", "EQ") == "EQ"]
+    with ThreadPoolExecutor(WORKERS) as ex:
+        parts = list(ex.map(_by_prefix, sessions, groups, [wanted] * WORKERS))
+    rows = [r for part in parts for r in part if r.get("symbol") in wanted and r.get("series", "EQ") in ("EQ", "BE")]
     if not rows:
         return pd.DataFrame(columns=["symbol", *FIELDS.values()])
     raw = pd.DataFrame(rows).drop_duplicates("symbol")
@@ -195,14 +214,57 @@ def sector_table(snap: pd.DataFrame) -> pd.DataFrame:
     """Per sector: traded value, estimated net flow, turnover-weighted % change, stocks up/down."""
     if snap.empty:
         return pd.DataFrame(columns=["sector", "turnover_cr", "net_flow_cr", "buy_cr", "sell_cr", "pct_change", "stocks", "up", "down"])
-    g = snap.assign(w=snap["pct_change"] * snap["turnover_cr"], buy=snap["buy_cr"], sell=snap["sell_cr"],
+    weight = snap["value_cr"] if "value_cr" in snap else snap["turnover_cr"]  # real ₹ value, whatever the metric
+    g = snap.assign(w=snap["pct_change"] * weight, wt=weight, buy=snap["buy_cr"], sell=snap["sell_cr"],
                     up=(snap["pct_change"] > 0).astype(int), down=(snap["pct_change"] < 0).astype(int))
     out = g.groupby("sector").agg(turnover_cr=("turnover_cr", "sum"), net_flow_cr=("net_flow_cr", "sum"),
-                                  buy_cr=("buy", "sum"), sell_cr=("sell", "sum"), w=("w", "sum"), stocks=("symbol", "count"), up=("up", "sum"),
+                                  buy_cr=("buy", "sum"), sell_cr=("sell", "sum"), w=("w", "sum"), wt=("wt", "sum"), stocks=("symbol", "count"), up=("up", "sum"),
                                   down=("down", "sum")).reset_index()
-    out["pct_change"] = out["w"] / out["turnover_cr"]
+    out["pct_change"] = out["w"] / out["wt"].where(out["wt"] > 0)
     out["flow_share"] = out["net_flow_cr"] / out["turnover_cr"]  # -1..+1: how one-sided the sector was
-    return out.drop(columns="w").sort_values("net_flow_cr", ascending=False).reset_index(drop=True)
+    return out.drop(columns=["w", "wt"]).sort_values("net_flow_cr", ascending=False).reset_index(drop=True)
+
+
+METRICS = {"Traded value": "value", "Traded volume": "volume", "Estimated buyer/seller pressure": "pressure"}
+
+
+def with_metric(snap: pd.DataFrame, metric: str) -> pd.DataFrame:
+    """Size the flow bands by another measure; the real traded value is kept in `value_cr`.
+
+    value    : traded value, ₹ crore (reported by NSE)
+    volume   : traded quantity, lakh shares (reported by NSE); split buyer/seller the same way as value
+    pressure : the estimated NET pressure only, |net flow| in ₹ crore, all of it on the buying side when
+               net buying and on the selling side when net selling (an estimate, see the module doc)
+    """
+    out = snap.copy()
+    out["value_cr"] = snap["turnover_cr"]
+    if metric == "volume":
+        out["turnover_cr"] = pd.to_numeric(snap["volume"], errors="coerce") / 1e5
+        out["buy_cr"] = out["turnover_cr"] * (1 + out["position"]) / 2
+        out["sell_cr"] = out["turnover_cr"] - out["buy_cr"]
+        out["net_flow_cr"] = out["buy_cr"] - out["sell_cr"]
+    elif metric == "pressure":
+        net = snap["buy_cr"] - snap["sell_cr"]
+        out["turnover_cr"] = net.abs()
+        out["buy_cr"], out["sell_cr"] = net.clip(lower=0), (-net).clip(lower=0)
+        out["net_flow_cr"] = net
+    return out[out["turnover_cr"] > 0].reset_index(drop=True)
+
+
+def filter_stocks(snap: pd.DataFrame, sectors: list[str] | None = None, direction: str = "All",
+                  min_rvol: float | None = None) -> pd.DataFrame:
+    """Keep the chosen sectors, only gainers or losers, and/or stocks trading at a relative volume of
+    at least min_rvol (needs an `rvol` column; stocks without one are dropped by that filter)."""
+    out = snap
+    if sectors:
+        out = out[out["sector"].isin(sectors)]
+    if direction == "Gainers":
+        out = out[out["pct_change"] > 0]
+    elif direction == "Losers":
+        out = out[out["pct_change"] < 0]
+    if min_rvol:
+        out = out[out["rvol"].fillna(0) >= min_rvol] if "rvol" in out else out.iloc[0:0]
+    return out.reset_index(drop=True)
 
 
 def headline(snap: pd.DataFrame, sectors: pd.DataFrame) -> str:
@@ -214,7 +276,7 @@ def headline(snap: pd.DataFrame, sectors: pd.DataFrame) -> str:
     best, worst = sectors.iloc[0], sectors.iloc[-1]
     mood = "more stocks are rising than falling" if up > down else (
         "more stocks are falling than rising" if down > up else "rising and falling stocks are balanced")
-    parts = [f"{up} of {len(snap)} large stocks are up and {down} down, so {mood}.",
+    parts = [f"{up} of {len(snap)} stocks are up and {down} down, so {mood}.",
              f"The most money is changing hands in {busiest['sector']} (₹{busiest['turnover_cr']:,.0f} cr)."]
     if best["net_flow_cr"] > 0:
         parts.append(f"Buyers look strongest in {best['sector']}")

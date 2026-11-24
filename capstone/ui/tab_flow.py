@@ -14,7 +14,7 @@ import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
 
-from capstone import charts, live, market_flow
+from capstone import charts, flow_history, live, market_flow
 from capstone.charts import CONFIG as CHART_CONFIG
 from capstone.ui import flow_anim, stock_panel
 from capstone.ui.common import DOWN, UP
@@ -103,6 +103,18 @@ HOW = """
 * **Buyer vs seller control** (sector flow): how much of each sector's and each big stock's trading was driven by buyers and how
   much by sellers today. This one is an **estimate**, explained below.
 
+**Filters**
+
+* *Market universe*: NSE's official Nifty 50, Nifty Next 50, Nifty 100 and Nifty 500 lists (niftyindices.com,
+  copied Nov 2026 into data/nifty500_sectors.csv; update it after NSE's March and September rebalances).
+* *Time period*: **Intraday** is the live NSE snapshot. **1 Day, 5 Days and 1 Month** add up NSE's published
+  end-of-day bhavcopy for the last 1, 5 or 21 sessions; % change is close to close. No intraday history is
+  made up: NSE's free feeds keep no past intraday snapshots.
+* *Flow metric*: traded value (₹ crore) or traded volume (lakh shares), both reported by NSE, or the
+  estimated net buying/selling pressure explained below.
+* *Relative volume*: volume divided by the stock's average daily volume over the previous 20 sessions.
+  During market hours today's volume is scaled up to a full day (volume so far ÷ share of the session gone).
+
 **What the moving dots mean**
 
 The two flow charts move in your browser (the server does no extra work). Thicker bands and more dots mean
@@ -138,38 +150,116 @@ behind the exchange. Use it to understand the day, not as a trading signal.
 """
 
 
+PERIODS = ["Intraday", "1 Day", "5 Days", "1 Month"]
+TOPS = [10, 20, 30, 50]
+RANKS = {"Highest traded value": "value_cr", "Relative volume": "rvol", "Biggest % move": "abs_pct"}
+
+
+def _filters(uni_all: pd.DataFrame) -> dict:
+    """The filter bar above the charts. Widgets live inside the fragment, so changing one reruns only it."""
+    c = st.columns([1.1, 1, 1.4, 0.8, 0.9])
+    f = {"universe": c[0].selectbox("Market universe", list(market_flow.UNIVERSES), index=2, key="flow_uni"),
+         "period": c[1].selectbox("Time period", PERIODS, key="flow_period",
+                                  help="Intraday = live NSE snapshot (about a minute behind). 1 Day, 5 Days and "
+                                       "1 Month add up NSE's published end-of-day bhavcopy; no intraday history "
+                                       "is reconstructed."),
+         "metric": c[2].selectbox("Flow metric", list(market_flow.METRICS), key="flow_metric",
+                                  help="What the band thickness measures. Value and volume are reported by NSE; "
+                                       "pressure is an estimate from where prices closed in their range."),
+         "top": c[3].selectbox("Top stocks", TOPS, index=1, key="flow_topn"),
+         "direction": c[4].selectbox("Show", ["All", "Gainers", "Losers"], key="flow_dir")}
+    c = st.columns([2.2, 1.3, 1])
+    f["sectors"] = c[0].multiselect("Sectors", sorted(uni_all["sector"].unique()), key="flow_sectors",
+                                    placeholder="All sectors")
+    f["rank"] = c[1].selectbox("Name the stocks with", list(RANKS), key="flow_rank")
+    f["min_rvol"] = c[2].selectbox("Relative volume at least", [None, 1.5, 2.0, 3.0], key="flow_rvol",
+                                   format_func=lambda v: "Any" if v is None else f"{v:.1f}×",
+                                   help="Volume vs the stock's 20-session average (scaled to a full day during "
+                                        "market hours). Needs the daily history, which downloads in the background.")
+    return f
+
+
+def _history_note(uni: pd.DataFrame, need: bool) -> pd.DataFrame:
+    """Saved daily history; starts a background download for stocks that lack it."""
+    hist = flow_history.load()
+    flow_history.refresh(list(uni["symbol"]))
+    p = flow_history.progress()
+    if p["busy"] and need:
+        st.info(f"Downloading daily history from NSE's bhavcopy: {p['done']} of {p['total']} stocks. "
+                "Views use what is saved so far; this updates when you change a filter or in a minute.")
+    elif p["error"] and need:
+        st.warning(f"Daily history could not be updated: {p['error']}")
+    return hist
+
+
 def _body() -> None:
     st.session_state["flow_seen"] = time.time()
     bucket = _bucket()
-    with st.spinner("Getting live prices for about 100 stocks from NSE (shared by everyone)..."):
-        quotes, fetched_at = market_flow.latest_quotes(max_age=60 if live.market_open() else 1800)
-    uni = market_flow.universe()
-    snap = market_flow.snapshot(quotes, uni) if quotes is not None else pd.DataFrame()
-    fetched = pd.Timestamp(fetched_at, unit="s", tz="UTC").tz_convert(live.IST).strftime("%H:%M:%S")
-    if snap.empty:
-        st.warning("NSE's live feed (mcp.nseindia.in) did not answer just now. Try again in a minute.")
-        return
-    sectors = market_flow.sector_table(snap)
-    as_of = snap["as_of"].max()
-    is_open = live.market_open()
-    missing = len(uni) - len(snap)
+    uni_all = market_flow.universe()
+    f = _filters(uni_all)
+    uni = market_flow.universe(f["universe"])
+    intraday = f["period"] == "Intraday"
+    hist = _history_note(uni, need=not intraday or bool(f["min_rvol"]) or f["rank"] == "Relative volume")
     from capstone import market_calendar
     mkt = market_calendar.status()
-    st.caption(f"NSE prices as of {as_of:%d %b %H:%M} IST (checked {fetched}). {mkt.headline}"
-               f"{'' if is_open else ': showing the last session'}. {len(snap)} stocks"
-               + (f"; {missing} not returned by NSE right now." if missing > 0 else "."))
-    st.success(market_flow.headline(snap, sectors))
+    pace = None
+    if intraday:
+        with st.spinner("Getting live prices for the Nifty 500 from NSE (one shared download)..."):
+            quotes, fetched_at = market_flow.latest_quotes(max_age=60 if live.market_open() else 1800)
+        snap = market_flow.snapshot(quotes, uni) if quotes is not None else pd.DataFrame()
+        if snap.empty:
+            st.warning("NSE's live feed (mcp.nseindia.in) did not answer just now. Try again in a minute.")
+            return
+        fetched = pd.Timestamp(fetched_at, unit="s", tz="UTC").tz_convert(live.IST).strftime("%H:%M:%S")
+        missing = len(uni) - len(snap)
+        st.caption(f"**Source:** NSE cash-market feed, prices as of {snap['as_of'].max():%d %b %H:%M} IST "
+                   f"(checked {fetched}). {mkt.headline}{'' if live.market_open() else ': showing the last session'}. "
+                   f"{len(snap)} of {len(uni)} {f['universe']} stocks"
+                   + (f"; {missing} not returned by NSE (e.g. REITs, suspended)." if missing > 0 else "."))
+        pace = market_flow.pace(snap)
+        period_word = "today"
+    else:
+        snap = flow_history.period_snapshot(hist, uni, flow_history.PERIODS[f["period"]])
+        if snap.empty:
+            st.info("The daily history for this view is still downloading from NSE's bhavcopy. It takes about "
+                    "40 seconds for the Nifty 100 and a few minutes for the Nifty 500 the first time. "
+                    "Use Intraday meanwhile.")
+            return
+        d0, d1 = snap["from_date"].min(), snap["to_date"].max()
+        st.caption(f"**Source:** NSE end-of-day bhavcopy, {f['period'].lower()} "
+                   f"{'session' if d0 == d1 else 'sessions'} {d0:%d %b}" + ("" if d0 == d1 else f" – {d1:%d %b %Y}")
+                   + f". {len(snap)} of {len(uni)} {f['universe']} stocks. Traded value and volume are NSE's daily "
+                   "totals added up; % change is close to close.")
+        period_word = f"over {f['period'].lower()}"
+    snap["rvol"] = snap["symbol"].map(flow_history.relative_volume(snap, hist, intraday))
+    snap["abs_pct"] = snap["pct_change"].abs()
+    snap["value_cr"] = snap["turnover_cr"]
+    view_snap = market_flow.filter_stocks(snap, f["sectors"], f["direction"], f["min_rvol"])
+    if view_snap.empty:
+        st.warning("No stocks match these filters. Loosen the sector, direction or relative-volume filter.")
+        return
+    metric = market_flow.METRICS[f["metric"]]
+    flow_snap = market_flow.with_metric(view_snap, metric)
+    sectors = market_flow.sector_table(flow_snap)
+    value_sectors = market_flow.sector_table(view_snap)
+    st.success(market_flow.headline(view_snap, value_sectors).replace("today", period_word))
 
-    up, down = int((snap["pct_change"] > 0).sum()), int((snap["pct_change"] < 0).sum())
-    buy, sell = float(snap["buy_cr"].sum()), float(snap["sell_cr"].sum())
-    m1, m2, m3, m4 = st.columns(4)
-    m1.metric("Stocks up / down", f"{up} / {down}")
-    m2.metric("Traded value today", f"₹{snap['turnover_cr'].sum():,.0f} cr")
-    m3.metric("Buyer-driven trading (est.)", f"₹{buy:,.0f} cr", f"{100 * buy / (buy + sell):.0f}% of all", delta_color="off")
-    m4.metric("Seller-driven trading (est.)", f"₹{sell:,.0f} cr", f"{100 * sell / (buy + sell):.0f}% of all", delta_color="off")
-
+    up, down = int((view_snap["pct_change"] > 0).sum()), int((view_snap["pct_change"] < 0).sum())
+    buy, sell = float(view_snap["buy_cr"].sum()), float(view_snap["sell_cr"].sum())
+    rv = view_snap["rvol"].median()
+    m = st.columns(5)
+    m[0].metric("Stocks up / down", f"{up} / {down}")
+    m[1].metric(f"Traded value {period_word}", f"₹{view_snap['value_cr'].sum():,.0f} cr")
+    m[2].metric("Buyer-driven (est.)", f"₹{buy:,.0f} cr", f"{100 * buy / (buy + sell):.0f}% of all", delta_color="off")
+    m[3].metric("Seller-driven (est.)", f"₹{sell:,.0f} cr", f"{100 * sell / (buy + sell):.0f}% of all", delta_color="off")
+    m[4].metric("Median relative volume", f"{rv:.2f}×" if pd.notna(rv) else "n/a",
+                help="Middle stock's volume vs its 20-session average (needs the daily history).")
+    rank_by = RANKS[f["rank"]]
+    if rank_by == "rvol" and flow_snap["rvol"].notna().sum() == 0:
+        rank_by = "value_cr"
+    title_note = f" · {f['universe'].upper()} · {f['period'].upper()}"
     focus = st.session_state.get("flow_focus")
-    if focus and focus not in set(snap["sector"]):
+    if focus and focus not in set(flow_snap["sector"]):
         focus = st.session_state["flow_focus"] = None
     views = ["Buyer vs seller control", "Capital distribution", "Heat map"]
     if st.session_state.get("flow_view") not in views:
@@ -179,7 +269,7 @@ def _body() -> None:
     if view == "Heat map":
         st.markdown("**Heat map**: box size = money traded today, colour = % change today. Click a sector to "
                     "zoom in; click the top bar to zoom out.")
-        st.plotly_chart(heat_map(snap), use_container_width=True, config=CHART_CONFIG)
+        st.plotly_chart(heat_map(view_snap), use_container_width=True, config=CHART_CONFIG)
         ix = _sector_indices(bucket)
         if len(ix):
             with st.expander("NSE's official sector indices, % change today"):
@@ -187,10 +277,12 @@ def _body() -> None:
                            "a little from the heat map, which uses only the stocks on this page.")
                 st.plotly_chart(_sector_index_bars(ix), use_container_width=True, config=CHART_CONFIG)
     elif view == "Buyer vs seller control":
-        st.markdown("**Buyer vs seller control**: sectors → buyers or sellers in control → stocks. Blue = estimated "
-                    "buyer-driven, red = estimated seller-driven trading. *Estimate from prices, not reported "
+        st.markdown(f"**Buyer vs seller control** ({period_word}): sectors → buyers or sellers in control → stocks. "
+                    "Blue = estimated buyer-driven, red = estimated seller-driven trading. *Estimate from prices, not reported "
                     "institutional orders; see 'How this works' below.*")
-        click = flow_anim.render(flow_anim.sector_flow_data(snap, sectors, market_flow.pace(snap), focus=focus),
+        click = flow_anim.render(flow_anim.sector_flow_data(flow_snap, sectors, pace, top=f["top"], focus=focus,
+                                                            unit=metric, rank_by=rank_by, title_note=title_note,
+                                                            period_word=period_word),
                                  key="flow_control")
         table = sectors.assign(flow_share=(sectors["flow_share"] * 100).round(0))[
             ["sector", "turnover_cr", "buy_cr", "sell_cr", "net_flow_cr", "flow_share", "pct_change", "stocks", "up",
@@ -201,11 +293,17 @@ def _body() -> None:
         with st.expander("Sector numbers as a table"):
             st.dataframe(table.round(2), hide_index=True, use_container_width=True)
     else:
-        top = st.slider("Stocks to show by name (the rest are grouped as 'other')", 10, 40, 20, step=5,
-                        key="flow_top", disabled=bool(focus))
-        st.markdown("**Capital distribution**: today's traded value (₹ crore, reported by NSE) from all stocks to "
-                    "sectors to the busiest stocks. Blue = up, red = down, grey = flat. *Measured, no estimate.*")
-        click = flow_anim.render(flow_anim.volume_flow_data(snap, market_flow.pace(snap), top, focus=focus),
+        st.markdown({"value": f"**Capital distribution**: traded value {period_word} (₹ crore, reported by NSE) from "
+                              "all stocks to sectors to the busiest stocks. Blue = price up, red = down, grey = flat. "
+                              "*Measured, no estimate.*",
+                     "volume": f"**Capital distribution**: traded volume {period_word} (lakh shares, reported by NSE) "
+                               "from all stocks to sectors to the busiest stocks. Blue = price up, red = down. *Measured.*",
+                     "pressure": f"**Capital distribution**: estimated net buying (blue) or selling (red) pressure "
+                                 f"{period_word}, ₹ crore, by sector and stock. *Estimate from prices, not reported "
+                                 "orders.*"}[metric])
+        click = flow_anim.render(flow_anim.volume_flow_data(flow_snap, pace, f["top"], focus=focus, unit=metric,
+                                                            rank_by=rank_by, title_note=title_note,
+                                                            period_word=period_word),
                                  key="flow_capital")
     if click:
         if click["kind"] == "sector":
@@ -223,7 +321,10 @@ def _body() -> None:
             st.rerun(scope="fragment")
     picked = st.session_state.get("flow_stock")
     if picked:
-        stock_panel.render(snap, picked, _forecast_symbols(), key="flow_sp")
+        if picked in set(snap["symbol"]):
+            stock_panel.render(snap, picked, _forecast_symbols(), key="flow_sp", hist=hist, period=f["period"])
+        else:
+            st.session_state.pop("flow_stock", None)
     with st.expander("How this works, in plain words"):
         st.markdown(HOW)
         st.caption("Stock list and sectors: data/nifty100_sectors.csv (Nifty 50 and Nifty Next 50, edit it "
