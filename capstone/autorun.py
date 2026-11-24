@@ -55,7 +55,18 @@ def _mtime(path) -> datetime | None:
 
 def is_stale(now: datetime | None = None) -> bool:
     built = _mtime(refresh.PREDICTIONS_FILE)
-    return built is None or built < last_slot(now or _now_ist())
+    return built is None or built < last_slot(now or _now_ist()) or target_wrong()
+
+
+def target_wrong() -> bool:
+    """The saved forecast aims at a day NSE is closed (e.g. made before a holiday was known)."""
+    from . import market_calendar
+
+    story = PROCESSED / "overnight_story.json"
+    try:
+        return market_calendar.forecast_target_wrong(json.loads(story.read_text()))
+    except (OSError, ValueError):
+        return False
 
 
 def needs_training(now: datetime | None = None) -> bool:

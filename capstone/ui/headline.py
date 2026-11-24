@@ -29,8 +29,8 @@ def rupee_delta(fx_chg: float | None) -> str | None:
 
 
 def render(preds: pd.DataFrame, story: dict, moves: pd.DataFrame) -> None:
-    st.caption(f"Forecast for the NSE open on **{story['next_open']}**, using closes from "
-               f"{story['as_of_close']} and the US session of {story['us_session'] or 'n/a'}. "
+    st.caption(f"Forecast for the NSE open on **{pd.Timestamp(story['next_open']):%a %d %b %Y}** (the next "
+               f"trading day), using closes from {pd.Timestamp(story['as_of_close']):%a %d %b} and the US session of {story['us_session'] or 'n/a'}. "
                "Run predict after about 02:30 IST so the US close is included.")
     if not story["overnight_complete"]:
         st.warning("The US session after India's last close is not in the data yet, so the overnight "

@@ -105,7 +105,7 @@ def app_forecast(symbol: str = "") -> dict:
     if not path.exists():
         return {"error": "The app has no forecast yet."}
     df = pd.read_csv(path)
-    keep = [c for c in ("symbol", "as_of_close", "close", "pred_open", "pred_gap_pct", "pred_open_low",
+    keep = [c for c in ("symbol", "as_of_close", "target_date", "close", "pred_open", "pred_gap_pct", "pred_open_low",
                         "pred_open_high", "reason") if c in df.columns]
     df = df[keep]
     if symbol:
@@ -113,8 +113,13 @@ def app_forecast(symbol: str = "") -> dict:
         if df.empty:
             return {"error": f"The app does not forecast {symbol}. It covers: "
                              f"{', '.join(pd.read_csv(path)['symbol'])}"}
-    return {"note": "close = previous close (on as_of_close) the forecast is based on; pred_gap_pct = "
-                    "expected opening gap in %; pred_open_low/high = 10-90% likely range",
+    from . import market_calendar
+
+    mkt = market_calendar.status()
+    return {"note": "close = previous close (on as_of_close) the forecast is based on; target_date = the NSE "
+                    "trading day whose 09:15 open is forecast; pred_gap_pct = expected opening gap in %; "
+                    "pred_open_low/high = 10-90% likely range",
+            "market_today": f"{mkt.headline}. {mkt.detail}",
             "forecasts": json.loads(df.round(2).to_json(orient="records"))}
 
 
@@ -221,7 +226,12 @@ def ask(question: str, history: list[dict] | None = None, chat=_chat) -> tuple[s
     if p is None:
         raise AskError("No language-model key is set. Add GROQ_API_KEY or GEMINI_API_KEY to Secrets.")
     tools, owner = tool_specs()
-    messages = [{"role": "system", "content": SYSTEM}, *(history or [])[-6:],
+    from . import market_calendar
+
+    mkt = market_calendar.status()
+    today = (f"\n\nNow (IST): {pd.Timestamp.now(tz='Asia/Kolkata'):%a %d %b %Y %H:%M}. {mkt.headline}. {mkt.detail} "
+             "On a closed day, live quotes are the last session's figures: say so.")
+    messages = [{"role": "system", "content": SYSTEM + today}, *(history or [])[-6:],
                 {"role": "user", "content": question}]
     used = []
     for _ in range(MAX_ROUNDS):

@@ -142,8 +142,10 @@ def _body() -> None:
     as_of = snap["as_of"].max()
     is_open = live.market_open()
     missing = len(uni) - len(snap)
-    st.caption(f"NSE prices as of {as_of:%d %b %H:%M} IST (checked {fetched}). Market "
-               f"{'open' if is_open else 'closed: showing the last session'}. {len(snap)} stocks"
+    from capstone import market_calendar
+    mkt = market_calendar.status()
+    st.caption(f"NSE prices as of {as_of:%d %b %H:%M} IST (checked {fetched}). {mkt.headline}"
+               f"{'' if is_open else ': showing the last session'}. {len(snap)} stocks"
                + (f"; {missing} not returned by NSE right now." if missing > 0 else "."))
     st.success(market_flow.headline(snap, sectors))
 
