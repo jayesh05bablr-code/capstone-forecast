@@ -95,7 +95,10 @@ def stock_tiles(preds: pd.DataFrame, quotes: dict, bars: dict) -> str:
         out.append(_tile(r.symbol, f"₹{ltp:,.2f}", q.get("pct_change"), graphic=spark, note=note,
                          title=f"Day {q.get('low', 0):,.2f} – {q.get('high', 0):,.2f}" if q else ""))
     cols = max(1, min(6, len(out)))
-    return (f'<div class="p8-grid" style="grid-template-columns:repeat({cols},minmax(0,1fr))">' + "".join(out)
+    return (f'<style>.p8-grid.p8-n{{grid-template-columns:repeat({cols},minmax(0,1fr))}}'
+            '@media(max-width:1100px){.p8-grid.p8-n{grid-template-columns:repeat(3,minmax(0,1fr))}}'
+            '@media(max-width:640px){.p8-grid.p8-n{grid-template-columns:repeat(2,minmax(0,1fr))}}</style>'
+            '<div class="p8-grid p8-n">' + "".join(out)
             + "</div>") if out else ""
 
 
