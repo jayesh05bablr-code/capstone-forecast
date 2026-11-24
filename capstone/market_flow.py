@@ -44,6 +44,8 @@ WORKERS = 4  # parallel NSE calls; each one is mostly waiting on the network, no
 FIELDS = {"lastTradedPrice": "ltp", "openPrice": "open", "highPrice": "high", "lowPrice": "low",
           "preClosePrice": "prev_close", "perChange": "pct_change", "volume": "volume", "value": "turnover_cr",
           "latestTimestamp": "as_of"}
+# Reported by NSE on the same row when available; optional so an older feed shape still works.
+EXTRA_FIELDS = {"fiftyTwoWeekHigh": "high_52w", "fiftyTwoWeekLow": "low_52w", "perChange30d": "pct_30d"}
 
 
 def universe() -> pd.DataFrame:
@@ -88,7 +90,9 @@ def fetch_quotes(symbols: list[str]) -> pd.DataFrame:
     rows = [r for part in parts for r in part if r.get("symbol") in wanted and r.get("series", "EQ") == "EQ"]
     if not rows:
         return pd.DataFrame(columns=["symbol", *FIELDS.values()])
-    df = pd.DataFrame(rows).drop_duplicates("symbol")[["symbol", *FIELDS]].rename(columns=FIELDS)
+    raw = pd.DataFrame(rows).drop_duplicates("symbol")
+    extra = [c for c in EXTRA_FIELDS if c in raw]
+    df = raw[["symbol", *FIELDS, *extra]].rename(columns={**FIELDS, **EXTRA_FIELDS})
     df["as_of"] = pd.to_datetime(df["as_of"], errors="coerce")
     return df
 
@@ -150,6 +154,11 @@ def snapshot(quotes: pd.DataFrame, uni: pd.DataFrame | None = None) -> pd.DataFr
     # At the day's high all of it counts as buying, at the low all as selling, in the middle half each.
     df["buy_cr"] = df["turnover_cr"] * (1 + df["position"]) / 2
     df["sell_cr"] = df["turnover_cr"] - df["buy_cr"]
+    # Volume-weighted average price of the session so far: traded value / traded quantity (both from NSE).
+    vol = pd.to_numeric(df["volume"], errors="coerce")
+    df["vwap"] = (df["turnover_cr"] * 1e7 / vol.where(vol > 0)).round(2)
+    for c in ("high_52w", "low_52w", "pct_30d"):
+        df[c] = pd.to_numeric(df[c], errors="coerce") if c in df else np.nan
     return df.reset_index(drop=True)
 
 

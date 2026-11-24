@@ -16,7 +16,7 @@ import streamlit as st
 
 from capstone import charts, live, market_flow
 from capstone.charts import CONFIG as CHART_CONFIG
-from capstone.ui import flow_anim
+from capstone.ui import flow_anim, stock_panel
 from capstone.ui.common import DOWN, UP
 
 HUB = "Nifty 100 stocks"
@@ -83,15 +83,24 @@ def _sector_index_bars(ix: pd.DataFrame) -> go.Figure:
     return fig
 
 
+def _forecast_symbols() -> list[str]:
+    """Stocks the opening-price model forecasts (the panel links to their forecast page)."""
+    from capstone.paths import PROCESSED
+    try:
+        return list(pd.read_csv(PROCESSED / "predictions.csv", usecols=["symbol"])["symbol"])
+    except (OSError, ValueError):
+        return []
+
+
 HOW = """
 **What the charts show**
 
 * **Heat map**: every box is one stock, grouped by sector. A bigger box means more money traded in it
   today (traded value, also called turnover). Blue means the price is up today, red down; the deeper the
   colour, the bigger the move. Sector boxes take the traded-value-weighted average of their stocks.
-* **Stock volume flow**: where today's trading is concentrated, from the whole group to each sector to its
+* **Capital distribution** (stock volume flow): where today's trading is concentrated, from the whole group to each sector to its
   busiest stocks. Band width is traded value in ₹ crore, which NSE reports, so this one is **measured**.
-* **Sector flow**: how much of each sector's and each big stock's trading was driven by buyers and how
+* **Buyer vs seller control** (sector flow): how much of each sector's and each big stock's trading was driven by buyers and how
   much by sellers today. This one is an **estimate**, explained below.
 
 **What the moving dots mean**
@@ -100,7 +109,9 @@ The two flow charts move in your browser (the server does no extra work). Thicke
 more rupees. Faster dots mean a stronger move: a bigger % change on the volume chart, a more one-sided
 stock (price right at its high or low) on the sector chart. An amber glow means the stock traded at least
 2.5 times its usual pace in the last minute, by comparing NSE's traded value now with a minute ago. It
-appears once the page has had two downloads. Use "Pause motion" to stop the animation.
+appears once the page has had two downloads. Use "Pause" to stop the animation and the
+speed buttons (0.5× to 4×) to slow it down or speed it up; the chart stops drawing by itself while it is
+off screen. Click a sector to see all of its stocks, or a stock to open its panel below the chart.
 
 **Why "money flow" can only be estimated**
 
@@ -157,8 +168,14 @@ def _body() -> None:
     m3.metric("Buyer-driven trading (est.)", f"₹{buy:,.0f} cr", f"{100 * buy / (buy + sell):.0f}% of all", delta_color="off")
     m4.metric("Seller-driven trading (est.)", f"₹{sell:,.0f} cr", f"{100 * sell / (buy + sell):.0f}% of all", delta_color="off")
 
-    view = st.radio("Chart", ["Heat map", "Sector flow (estimate)", "Stock volume flow"], horizontal=True,
-                    key="flow_view", label_visibility="collapsed")
+    focus = st.session_state.get("flow_focus")
+    if focus and focus not in set(snap["sector"]):
+        focus = st.session_state["flow_focus"] = None
+    views = ["Buyer vs seller control", "Capital distribution", "Heat map"]
+    if st.session_state.get("flow_view") not in views:
+        st.session_state["flow_view"] = views[0]  # old saved choice from before the rename
+    view = st.radio("Chart", views, horizontal=True, key="flow_view", label_visibility="collapsed")
+    click = None
     if view == "Heat map":
         st.markdown("**Heat map**: box size = money traded today, colour = % change today. Click a sector to "
                     "zoom in; click the top bar to zoom out.")
@@ -169,10 +186,12 @@ def _body() -> None:
                 st.caption("These are NSE's own sector indices (weighted by company size), so they can differ "
                            "a little from the heat map, which uses only the stocks on this page.")
                 st.plotly_chart(_sector_index_bars(ix), use_container_width=True, config=CHART_CONFIG)
-    elif view == "Sector flow (estimate)":
-        st.markdown("**Sector flow**: how much of each sector's trading was driven by buyers (blue) or sellers (red) "
-                    "today. *Estimate, see 'How this works' below.*")
-        flow_anim.render(flow_anim.sector_flow_data(snap, sectors, market_flow.pace(snap)))
+    elif view == "Buyer vs seller control":
+        st.markdown("**Buyer vs seller control**: sectors → buyers or sellers in control → stocks. Blue = estimated "
+                    "buyer-driven, red = estimated seller-driven trading. *Estimate from prices, not reported "
+                    "institutional orders; see 'How this works' below.*")
+        click = flow_anim.render(flow_anim.sector_flow_data(snap, sectors, market_flow.pace(snap), focus=focus),
+                                 key="flow_control")
         table = sectors.assign(flow_share=(sectors["flow_share"] * 100).round(0))[
             ["sector", "turnover_cr", "buy_cr", "sell_cr", "net_flow_cr", "flow_share", "pct_change", "stocks", "up",
              "down"]].rename(columns={
@@ -182,11 +201,29 @@ def _body() -> None:
         with st.expander("Sector numbers as a table"):
             st.dataframe(table.round(2), hide_index=True, use_container_width=True)
     else:
-        top = st.slider("Stocks to show by name (the rest are grouped as 'Other')", 10, 40, 20, step=5,
-                        key="flow_top")
-        st.markdown("**Stock volume flow**: how today's trading splits into sectors and then into the busiest "
-                    "stocks. Measured by NSE, no estimate.")
-        flow_anim.render(flow_anim.volume_flow_data(snap, market_flow.pace(snap), top))
+        top = st.slider("Stocks to show by name (the rest are grouped as 'other')", 10, 40, 20, step=5,
+                        key="flow_top", disabled=bool(focus))
+        st.markdown("**Capital distribution**: today's traded value (₹ crore, reported by NSE) from all stocks to "
+                    "sectors to the busiest stocks. Blue = up, red = down, grey = flat. *Measured, no estimate.*")
+        click = flow_anim.render(flow_anim.volume_flow_data(snap, market_flow.pace(snap), top, focus=focus),
+                                 key="flow_capital")
+    if click:
+        if click["kind"] == "sector":
+            st.session_state["flow_focus"] = click["id"]
+        elif click["kind"] == "reset":
+            st.session_state["flow_focus"] = None
+        elif click["kind"] == "stock":
+            st.session_state["flow_stock"] = click["id"]
+        st.rerun(scope="fragment")
+    if focus:
+        c1, c2 = st.columns([4, 1])
+        c1.caption(f"Showing only **{focus}**. Click '◀ All sectors' in the chart or the button to go back.")
+        if c2.button("Show all sectors", key="flow_unfocus", use_container_width=True):
+            st.session_state["flow_focus"] = None
+            st.rerun(scope="fragment")
+    picked = st.session_state.get("flow_stock")
+    if picked:
+        stock_panel.render(snap, picked, _forecast_symbols(), key="flow_sp")
     with st.expander("How this works, in plain words"):
         st.markdown(HOW)
         st.caption("Stock list and sectors: data/nifty100_sectors.csv (Nifty 50 and Nifty Next 50, edit it "

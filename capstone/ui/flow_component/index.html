@@ -1,0 +1,416 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<!--
+Pulse8 flow engine: animated Sankey drawn on an HTML5 canvas in the visitor's browser.
+
+Streamlit sends the chart description (nodes, links, colours, tooltips) once per rerun; every frame of
+motion runs here, so the animation costs the server nothing. Clicking a sector or a stock sends one
+small message back to Python ({kind, id, nonce}), which opens the drill-down there.
+
+The Streamlit custom-component handshake is done by hand (plain postMessage, no npm build):
+  iframe -> parent  streamlit:componentReady       once, on load
+  parent -> iframe  streamlit:render {args}        on every rerun (args.data = chart JSON)
+  iframe -> parent  streamlit:setFrameHeight        after each layout
+  iframe -> parent  streamlit:setComponentValue     on click
+-->
+<style>
+  :root { --bg:#0b0f17; --panel:#0f1420; --text:#e8eaef; --muted:#8a93a6; --line:rgba(150,160,180,0.18);
+          --chip:#161c2a; --accent:#f2b84b; }
+  :root[data-theme="light"] { --bg:#ffffff; --panel:#f6f7f9; --text:#1b1f27; --muted:#5d6472; --line:rgba(60,70,90,0.16);
+          --chip:#eef0f4; --accent:#9a6a00; }
+  html, body { margin:0; padding:0; background:transparent; color:var(--text);
+    font-family: Inter, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
+  #card { background:var(--bg); border:1px solid var(--line); border-radius:12px; padding:10px 12px 8px; }
+  .bar { display:flex; flex-wrap:wrap; align-items:center; gap:6px 14px; font-size:12px; color:var(--muted);
+    padding:2px 2px 8px; border-bottom:1px solid var(--line); margin-bottom:6px; }
+  .title { color:var(--text); font-weight:700; font-size:13px; letter-spacing:0.02em; margin-right:4px; }
+  .key { display:inline-flex; align-items:center; gap:6px; white-space:nowrap; }
+  .dot { width:8px; height:8px; border-radius:50%; display:inline-block; box-shadow:0 0 6px currentColor; }
+  .tag { border-radius:999px; padding:2px 9px; font-weight:700; font-size:11px; letter-spacing:0.04em; }
+  .tag.est { background:rgba(242,184,75,0.14); color:var(--accent); }
+  .tag.meas { background:rgba(74,163,255,0.14); color:#5aa9ff; }
+  :root[data-theme="light"] .tag.meas { color:#1f62b5; }
+  .spacer { flex:1; }
+  .seg { display:inline-flex; border:1px solid var(--line); border-radius:8px; overflow:hidden; }
+  .seg button { border:0; border-radius:0; border-right:1px solid var(--line); padding:3px 9px; }
+  .seg button:last-child { border-right:0; }
+  .seg button.on { background:rgba(90,169,255,0.18); color:var(--text); font-weight:700; }
+  button { font:inherit; font-size:12px; color:var(--text); background:var(--chip); border:1px solid var(--line);
+    border-radius:8px; padding:3px 11px; cursor:pointer; }
+  button:hover { border-color:var(--muted); }
+  #wrap { position:relative; }
+  canvas { display:block; width:100%; }
+  #tip { position:absolute; pointer-events:none; background:var(--panel); color:var(--text); border:1px solid var(--line);
+    border-radius:8px; padding:7px 10px; font-size:12px; line-height:1.5; box-shadow:0 6px 24px rgba(0,0,0,0.35);
+    display:none; white-space:nowrap; z-index:2; }
+  #tip .hint { color:var(--muted); font-size:11px; }
+  #note { font-size:11.5px; color:var(--muted); padding:6px 2px 0; line-height:1.45; }
+  #status { position:absolute; right:6px; bottom:4px; font-size:10.5px; color:var(--muted); pointer-events:none; }
+</style>
+</head>
+<body>
+<div id="card">
+  <div class="bar" id="bar"></div>
+  <div id="wrap"><canvas id="cv"></canvas><div id="tip"></div><div id="status"></div></div>
+  <div id="note"></div>
+</div>
+<script>
+"use strict";
+// ---------- Streamlit handshake ----------
+function send(type, extra) { window.parent.postMessage(Object.assign({ isStreamlitMessage: true, type }, extra), "*"); }
+function setHeight() { send("streamlit:setFrameHeight", { height: Math.ceil(document.getElementById("card").getBoundingClientRect().height) + 4 }); }
+function emit(value) { send("streamlit:setComponentValue", { value: Object.assign({ nonce: Date.now() + Math.random() }, value), dataType: "json" }); }
+
+let DATA = null, dataKey = "";
+window.addEventListener("message", e => {
+  const m = e.data;
+  if (!m || m.type !== "streamlit:render" || !m.args || !m.args.data) return;
+  const key = JSON.stringify(m.args.data);
+  if (key === dataKey) return;  // same chart as last rerun: keep the motion going
+  dataKey = key; DATA = m.args.data; start();
+});
+send("streamlit:componentReady", { apiVersion: 1 });
+if (window.FLOW_DATA) { DATA = window.FLOW_DATA; window.addEventListener("load", start); }  // standalone preview
+
+// ---------- state ----------
+const cv = document.getElementById("cv"), ctx = cv.getContext("2d"), tip = document.getElementById("tip");
+const rib = document.createElement("canvas"), rctx = rib.getContext("2d");  // ribbons, redrawn only on hover/resize
+const NODE_W = 9;
+let W = 0, H = 400, nodes = [], links = [], particles = [], batches = [];
+let hover = null, hoverSet = null, ribbonsDirty = true, last = performance.now(), clock = 0;
+let paused = false, speedMul = 1, visible = true, running = false, dpr = 1;
+let TEXT, MUTED, BG, PILL;
+const reduce = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+try { speedMul = +sessionStorage.getItem("p8speed") || 1; } catch (e) {}
+
+function start() {
+  document.documentElement.dataset.theme = DATA.dark === false ? "light" : "dark";
+  const css = getComputedStyle(document.documentElement);
+  TEXT = css.getPropertyValue("--text").trim(); MUTED = css.getPropertyValue("--muted").trim();
+  BG = css.getPropertyValue("--bg").trim();
+  PILL = DATA.dark === false ? "rgba(255,255,255,0.86)" : "rgba(11,15,23,0.78)";
+  paused = paused || reduce;
+  toolbar();
+  document.getElementById("note").innerHTML = DATA.note || "";
+  layout(); setHeight();
+  if (!running) { running = true; requestAnimationFrame(draw); }
+}
+
+// ---------- toolbar: title, legend, estimate badge, speed, pause, back ----------
+function toolbar() {
+  const bar = document.getElementById("bar");
+  const speeds = [0.5, 1, 2, 4];
+  bar.innerHTML = (DATA.title ? `<span class="title">${DATA.title}</span>` : "")
+    + DATA.legend.map(k => k.color
+      ? `<span class="key"><span class="dot" style="background:${k.color};color:${k.color}"></span>${k.text}</span>`
+      : `<span class="key">${k.text}</span>`).join("")
+    + `<span class="tag ${DATA.estimate ? "est" : "meas"}">${DATA.estimate ? "ESTIMATE" : "MEASURED"}</span>`
+    + `<span class="spacer"></span>`
+    + (DATA.focus ? `<button id="back" title="Show every sector again">◀ All sectors</button>` : "")
+    + `<span class="key">Speed <span class="seg" id="speed">${speeds.map(s =>
+        `<button data-s="${s}" class="${s === speedMul ? "on" : ""}">${s}×</button>`).join("")}</span></span>`
+    + `<button id="pause"></button>`;
+  const pb = document.getElementById("pause");
+  const setBtn = () => pb.textContent = paused ? "▶ Resume" : "❚❚ Pause";
+  setBtn();
+  pb.onclick = () => { paused = !paused; setBtn(); last = performance.now(); };
+  document.querySelectorAll("#speed button").forEach(b => b.onclick = () => {
+    speedMul = +b.dataset.s; try { sessionStorage.setItem("p8speed", speedMul); } catch (e) {}
+    document.querySelectorAll("#speed button").forEach(x => x.classList.toggle("on", x === b));
+  });
+  const back = document.getElementById("back");
+  if (back) back.onclick = () => emit({ kind: "reset" });
+}
+
+// ---------- layout ----------
+function layout() {
+  W = cv.parentElement.clientWidth || 800;
+  dpr = Math.min(window.devicePixelRatio || 1, 2);
+  const narrow = W < 720;
+  H = Math.round((DATA.height || 480) * (narrow ? 1.45 : 1));  // wrapped labels need taller rows
+  for (const c of [cv, rib]) { c.width = W * dpr; c.height = H * dpr; }
+  cv.style.height = H + "px";
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0); rctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  const cols = Math.max(...DATA.nodes.map(n => n.col)) + 1;
+  const padT = 12, padB = 12, GAP = DATA.gap || 8;
+  nodes = DATA.nodes.map((n, i) => ({ ...n, i, inV: 0, outV: 0, ins: [], outs: [] }));
+  nodes.forEach(n => { n.firstCol = n.col === 0; n.lastCol = n.col === cols - 1; });
+  // Side margins sized to the labels that sit outside the chart; labels wrap to two lines if they do not fit.
+  const fit = (side, cap) => {
+    const ns = nodes.filter(n => side === "L" ? n.firstCol && labelSide(n).right === false : n.lastCol);
+    if (!ns.length) return 24;
+    const one = Math.max(...ns.map(n => lineWidths(n).one)), two = Math.max(...ns.map(n => lineWidths(n).two));
+    if (one + 14 <= cap) return one + 14;
+    ns.forEach(n => n.wrap = true);
+    return Math.min(two + 14, cap);
+  };
+  const padL = fit("L", W * (narrow ? 0.3 : 0.26));
+  const padR = fit("R", W * (narrow ? 0.32 : 0.26));
+  links = DATA.links.map((l, i) => ({ ...l, i, s: nodes[l.source], t: nodes[l.target] }));
+  links.forEach(l => { l.s.outV += l.value; l.t.inV += l.value; l.s.outs.push(l); l.t.ins.push(l); });
+  nodes.forEach(n => { n.v = Math.max(n.inV, n.outV); n.minH = n.big ? 2 : n.wrap ? 29 : n.col === cols - 1 ? (DATA.minLeaf || 14) : 12; });
+  // One rupee scale for every column (so band widths compare), leaving room for minimum label heights.
+  let k = Infinity;
+  for (let pass = 0; pass < 3; pass++) {
+    let kk = Infinity;
+    for (let c = 0; c < cols; c++) {
+      const col = nodes.filter(n => n.col === c);
+      const room = H - padT - padB - GAP * (col.length - 1);
+      const fixed = col.filter(n => k !== Infinity && n.v * k < n.minH);
+      const free = col.filter(n => !fixed.includes(n)).reduce((a, n) => a + n.v, 0);
+      const used = fixed.reduce((a, n) => a + n.minH, 0);
+      if (free > 0) kk = Math.min(kk, (room - used) / free);
+    }
+    k = kk;
+  }
+  for (let c = 0; c < cols; c++) {
+    const col = nodes.filter(n => n.col === c);
+    col.forEach(n => n.h = Math.max(n.v * k, n.minH));
+    const total = col.reduce((a, n) => a + n.h, 0) + GAP * (col.length - 1);
+    let y = padT + Math.max(0, (H - padT - padB - total) / 2);
+    const x = cols === 1 ? padL : padL + c * (W - padL - padR - NODE_W) / (cols - 1);
+    col.forEach(n => { n.x = x; n.y = y; y += n.h + GAP; });
+  }
+  links.forEach(l => l.w = Math.max(l.value * k, 1));
+  nodes.forEach(n => {
+    n.outs.sort((a, b) => a.t.y - b.t.y); n.ins.sort((a, b) => a.s.y - b.s.y);
+    let y = n.y + (n.h - n.outV * k) / 2;
+    n.outs.forEach(l => { l.y0 = y + l.w / 2; y += l.value * k; });
+    y = n.y + (n.h - n.inV * k) / 2; n.ins.forEach(l => { l.y1 = y + l.w / 2; y += l.value * k; });
+  });
+  links.forEach(l => { l.x0 = l.s.x + NODE_W; l.x1 = l.t.x; l.xm = (l.x0 + l.x1) / 2; });
+  nodes.forEach(n => n.box = labelBox(n));
+  makeParticles();
+  ribbonsDirty = true;
+}
+
+// ---------- particles: more dots = more rupees, faster = stronger move ----------
+function makeParticles() {
+  const total = links.reduce((a, l) => a + l.value, 0) || 1;
+  const budget = Math.min(DATA.maxParticles || 700, W < 720 ? 400 : 800);
+  particles = [];
+  links.forEach(l => {
+    const n = Math.max(2, Math.min(70, Math.round(budget * l.value / total)));
+    for (let j = 0; j < n; j++) particles.push({ l, t: Math.random(), off: (Math.random() - 0.5) * 0.85,
+      r: 1.1 + Math.random() * 1.3, jit: 0.75 + Math.random() * 0.5 });
+  });
+  // Group by colour once, so each frame needs one fill per colour instead of one per dot.
+  const by = new Map();
+  particles.forEach(p => { const c = p.l.dot || p.l.color; if (!by.has(c)) by.set(c, []); by.get(c).push(p); });
+  batches = [...by.entries()];
+}
+
+function bez(l, t) {
+  const u = 1 - t;
+  return [u*u*u*l.x0 + 3*u*u*t*l.xm + 3*u*t*t*l.xm + t*t*t*l.x1,
+          u*u*u*l.y0 + 3*u*u*t*l.y0 + 3*u*t*t*l.y1 + t*t*t*l.y1];
+}
+function ribbon(c, l) {
+  const h = l.w / 2;
+  c.beginPath();
+  c.moveTo(l.x0, l.y0 - h);
+  c.bezierCurveTo(l.xm, l.y0 - h, l.xm, l.y1 - h, l.x1, l.y1 - h);
+  c.lineTo(l.x1, l.y1 + h);
+  c.bezierCurveTo(l.xm, l.y1 + h, l.xm, l.y0 + h, l.x0, l.y0 + h);
+  c.closePath();
+}
+const lit = l => !hoverSet || hoverSet.has(l);
+
+function drawRibbons() {
+  rctx.clearRect(0, 0, W, H);
+  const dark = DATA.dark !== false;
+  links.forEach(l => {
+    const on = lit(l), a = hoverSet ? (on ? 1.55 : 0.28) : 1;
+    const g = rctx.createLinearGradient(l.x0, 0, l.x1, 0);
+    g.addColorStop(0, rgba(l.colorFrom || l.color, (dark ? 0.26 : 0.2) * a));
+    g.addColorStop(1, rgba(l.color, (dark ? 0.36 : 0.28) * a));
+    ribbon(rctx, l); rctx.fillStyle = g; rctx.fill();
+    if (hoverSet && on) { rctx.strokeStyle = rgba(l.color, 0.6); rctx.lineWidth = 0.8; rctx.stroke(); }
+  });
+  ribbonsDirty = false;
+}
+
+function draw(now) {
+  if (!visible) { running = false; return; }
+  const dt = paused ? 0 : Math.min((now - last) / 1000, 0.05);
+  last = now; clock += dt;
+  if (ribbonsDirty) drawRibbons();
+  ctx.clearRect(0, 0, W, H);
+  ctx.drawImage(rib, 0, 0, W, H);
+  // surge glow: stocks trading far above their usual pace in the last minute (measured by NSE)
+  links.forEach(l => {
+    if (!l.surge) return;
+    const pulse = 0.35 + 0.35 * Math.sin(clock * 3 + l.i);
+    ribbon(ctx, l); ctx.save(); ctx.shadowColor = rgba("#f2b84b", 0.9); ctx.shadowBlur = 10;
+    ctx.strokeStyle = rgba("#f2b84b", pulse); ctx.lineWidth = 1.4; ctx.stroke(); ctx.restore();
+  });
+  // particles, one fill per colour (dimmed group separately while hovering)
+  const base = (DATA.baseSpeed || 0.12) * speedMul;
+  ctx.save();
+  if (DATA.dark !== false) ctx.globalCompositeOperation = "lighter";
+  for (const [color, ps] of batches) {
+    for (const pass of hoverSet ? [false, true] : [true]) {
+      ctx.beginPath();
+      for (const p of ps) {
+        const l = p.l;
+        if (pass) p.t += dt * base * (0.4 + 1.8 * (l.speed || 0)) * p.jit;
+        if (p.t > 1) p.t -= 1;
+        if (hoverSet && lit(l) !== pass) continue;
+        const [x, y] = bez(l, p.t);
+        const r = p.r * Math.min(1, p.t * 8, (1 - p.t) * 8);
+        if (r <= 0.1) continue;
+        const py = y + p.off * l.w * 0.5;
+        ctx.moveTo(x + r, py); ctx.arc(x, py, r, 0, 6.283);
+      }
+      ctx.fillStyle = rgba(color, pass ? 0.9 : 0.18); ctx.fill();
+    }
+  }
+  ctx.restore();
+  // nodes + labels
+  nodes.forEach(n => {
+    const dim = hoverSet && !n.on;
+    ctx.globalAlpha = dim ? 0.45 : 1;
+    ctx.fillStyle = n.color; roundRect(ctx, n.x, n.y, NODE_W, n.h, 2.5); ctx.fill();
+    if (hover && hover.node === n) { ctx.strokeStyle = TEXT; ctx.lineWidth = 1.2; ctx.stroke(); }
+    if (n.surge) { ctx.save(); ctx.shadowColor = "#f2b84b"; ctx.shadowBlur = 8 + 6 * Math.sin(clock * 3);
+      ctx.fillStyle = rgba("#f2b84b", 0.95); ctx.beginPath();
+      ctx.arc(n.box.right + 7, n.y + n.h / 2, 3, 0, 6.283); ctx.fill(); ctx.restore(); }
+    label(n);
+    ctx.globalAlpha = 1;
+  });
+  requestAnimationFrame(draw);
+}
+
+// ---------- labels: name in bold, then "sub · ±x.x%" with the % in its own colour ----------
+const F_MAIN = big => `${big ? 700 : 600} ${big ? (W < 720 ? 12.5 : 15) : W < 720 ? 11.5 : 12.5}px Inter, "Segoe UI", sans-serif`;
+const F_SUB = () => `${W < 720 ? 10.5 : 11.5}px Inter, "Segoe UI", sans-serif`;
+const dp = n => n.chgDp == null ? 2 : n.chgDp;
+const flat = n => n.chg == null || +Math.abs(n.chg).toFixed(dp(n)) === 0;  // shows as 0.0%: no sign, no colour
+function chgText(n) { return n.chg == null ? "" : `${flat(n) ? "" : n.chg > 0 ? "+" : "−"}${Math.abs(n.chg).toFixed(dp(n))}%`; }
+function chgColor(n) { return flat(n) ? MUTED : n.chg > 0 ? (DATA.upText || "#5aa9ff") : (DATA.downText || "#ff6b6a"); }
+function labelSide(n) {
+  const right = n.align ? n.align === "right" : !n.firstCol;
+  return { x: right ? n.x + NODE_W + 7 : n.x - 7, right };
+}
+function segs(n) {
+  const out = [];
+  if (n.sub) out.push([n.sub, n.subColor || MUTED]);
+  const c = chgText(n);
+  if (c) out.push([(n.sub ? " · " : "") + c, chgColor(n)]);
+  return out;
+}
+function width(parts, font) { ctx.font = font; return parts.reduce((a, [t]) => a + ctx.measureText(t).width, 0); }
+function lineWidths(n) {
+  const sub = segs(n), wMain = width([[n.label]], F_MAIN(n.big)), wSub = width(sub, F_SUB());
+  return { one: wMain + (sub.length ? 7 + wSub : 0), two: Math.max(wMain, wSub) };
+}
+function labelBox(n) {
+  const s = labelSide(n), sub = segs(n);
+  const two = sub.length && (n.h >= 27 || n.big || n.wrap);
+  const wMain = width([[n.label]], F_MAIN(n.big)), wSub = width(sub, F_SUB());
+  const w = two ? Math.max(wMain, wSub) : wMain + (sub.length ? 7 + wSub : 0);
+  const h = two ? 30 : 16;
+  const x0 = s.right ? s.x : s.x - w;
+  return { x: x0, y: n.y + n.h / 2 - h / 2, w, h, two, sub, right: x0 + w, side: s };
+}
+function label(n) {
+  if (n.h < 2.5 && !n.big) return;
+  const b = n.box, cy = n.y + n.h / 2;
+  // middle-column labels sit on top of ribbons: give them a backdrop so they stay readable
+  if (!n.firstCol && !n.lastCol || n.big) {
+    ctx.fillStyle = PILL; roundRect(ctx, b.x - 5, b.y - 2, b.w + 10, b.h + 4, 6); ctx.fill();
+  }
+  ctx.textBaseline = "middle"; ctx.textAlign = "left";
+  ctx.font = F_MAIN(n.big);
+  const mainW = ctx.measureText(n.label).width;
+  const xMain = b.side.right || !b.two ? b.x : b.x + b.w - mainW;
+  const y1 = b.two ? cy - 7.5 : cy;
+  ctx.fillStyle = n.labelColor || TEXT; ctx.fillText(n.label, xMain, y1);
+  if (!b.sub.length) return;
+  ctx.font = F_SUB();
+  const subW = width(b.sub, F_SUB());
+  let x = b.two ? (b.side.right ? b.x : b.x + b.w - subW) : xMain + mainW + 7;
+  const y2 = b.two ? cy + 8.5 : cy;
+  ctx.font = F_SUB();
+  for (const [t, c] of b.sub) { ctx.fillStyle = c; ctx.fillText(t, x, y2); x += ctx.measureText(t).width; }
+}
+function roundRect(c, x, y, w, h, r) {
+  r = Math.max(0, Math.min(r, h / 2, w / 2)); c.beginPath(); c.moveTo(x + r, y); c.arcTo(x + w, y, x + w, y + h, r);
+  c.arcTo(x + w, y + h, x, y + h, r); c.arcTo(x, y + h, x, y, r); c.arcTo(x, y, x + w, y, r); c.closePath();
+}
+function rgba(hex, a) {
+  if (hex.startsWith("rgb")) return hex;
+  const v = parseInt(hex.replace("#", ""), 16);
+  return `rgba(${(v >> 16) & 255},${(v >> 8) & 255},${v & 255},${Math.min(1, a)})`;
+}
+
+// ---------- hover + click ----------
+function hitNode(mx, my) {
+  for (const n of nodes) {
+    if (mx >= n.x - 4 && mx <= n.x + NODE_W + 4 && my >= n.y - 2 && my <= n.y + n.h + 2) return n;
+    const b = n.box;
+    if (b && mx >= b.x - 4 && mx <= b.x + b.w + 4 && my >= b.y - 1 && my <= b.y + b.h + 1) return n;
+  }
+  return null;
+}
+function hitLink(mx, my) {
+  let found = null;
+  for (const l of links) {
+    if (mx < l.x0 || mx > l.x1) continue;
+    let t = (mx - l.x0) / (l.x1 - l.x0);
+    for (let i = 0; i < 4; i++) { const [bx] = bez(l, t); t = Math.min(1, Math.max(0, t + (mx - bx) / (l.x1 - l.x0))); }
+    const [, by] = bez(l, t);
+    if (Math.abs(my - by) <= Math.max(l.w / 2, 3) && (!found || l.w < found.w)) found = l;
+  }
+  return found;
+}
+// Light up a node's own bands and the chain behind/after it, without spreading through the big hubs.
+function connected(n) {
+  const set = new Set(), seen = new Set([n]);
+  const walk = (m, dir) => (dir < 0 ? m.ins : m.outs).forEach(l => {
+    set.add(l); const o = dir < 0 ? l.s : l.t;
+    if (!seen.has(o)) { seen.add(o); if (!o.big) walk(o, dir); }
+  });
+  walk(n, -1); walk(n, 1);
+  return [set, seen];
+}
+function setHover(h) {
+  const same = (h && hover && h.node === hover.node && h.link === hover.link) || (!h && !hover);
+  if (same) return;
+  hover = h; nodes.forEach(n => n.on = false);
+  if (!h) hoverSet = null;
+  else if (h.node) { const [s, seen] = connected(h.node); hoverSet = s; seen.forEach(n => n.on = true); }
+  else { hoverSet = new Set([h.link]); h.link.s.on = h.link.t.on = true; }
+  ribbonsDirty = true;
+}
+cv.addEventListener("mousemove", e => {
+  const r = cv.getBoundingClientRect(), mx = e.clientX - r.left, my = e.clientY - r.top;
+  const n = hitNode(mx, my), l = n ? null : hitLink(mx, my);
+  setHover(n ? { node: n } : l ? { link: l } : null);
+  cv.style.cursor = n && n.kind ? "pointer" : "default";
+  if (!n && !l) { tip.style.display = "none"; return; }
+  tip.innerHTML = (n ? n.tip : l.tip) + (n && n.kind ? `<div class="hint">Click for ${n.kind === "sector" ? "the sector's stocks" : "the stock panel"}</div>` : "");
+  tip.style.display = "block";
+  const tw = tip.offsetWidth, th = tip.offsetHeight;
+  tip.style.left = Math.max(4, Math.min(mx + 14, W - tw - 4)) + "px";
+  tip.style.top = (my + 14 + th > H ? Math.max(0, my - th - 10) : my + 14) + "px";
+});
+cv.addEventListener("mouseleave", () => { setHover(null); tip.style.display = "none"; });
+cv.addEventListener("click", e => {
+  const r = cv.getBoundingClientRect(), n = hitNode(e.clientX - r.left, e.clientY - r.top);
+  if (n && n.kind) emit({ kind: n.kind, id: n.id });
+});
+
+// ---------- resize, and stop drawing while the chart is off screen or the tab is hidden ----------
+new ResizeObserver(() => { if (DATA && Math.abs(cv.parentElement.clientWidth - W) > 1) { layout(); setHeight(); } })
+  .observe(cv.parentElement);
+function wake() { if (DATA && visible && !running) { running = true; last = performance.now(); requestAnimationFrame(draw); } }
+if ("IntersectionObserver" in window)
+  new IntersectionObserver(es => { visible = es[0].isIntersecting && !document.hidden; wake(); }).observe(cv);
+document.addEventListener("visibilitychange", () => { visible = !document.hidden; wake(); });
+</script>
+</body>
+</html>
