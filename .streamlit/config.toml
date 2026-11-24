@@ -3,3 +3,14 @@ headless = true
 
 [browser]
 gatherUsageStats = false
+
+# Terminal look: dark by default. Visitors can still pick Light under ⋮ → Settings.
+[theme]
+base = "dark"
+primaryColor = "#5aa9ff"
+backgroundColor = "#0b0f17"
+secondaryBackgroundColor = "#151b27"
+textColor = "#e6e9ef"
+borderColor = "#232b3a"
+font = "sans-serif"
+

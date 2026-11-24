@@ -305,7 +305,10 @@ def render(data: dict, key: str, dark: bool | None = None) -> dict | None:
     The browser keeps animating between reruns; it only re-lays out when the chart data changes.
     """
     if dark is None:
-        dark = st.session_state.get("terminal_theme", "Dark") == "Dark"
+        try:  # follows the theme the visitor picked (dark by default, see .streamlit/config.toml)
+            dark = (st.context.theme.type or "dark") == "dark"
+        except Exception:
+            dark = True
     data = {**data, "dark": dark}
     data = _clean(data)  # plain JSON types only: numpy numbers become floats, NaN becomes null
     value = _component(data=data, key=key, default=None)
