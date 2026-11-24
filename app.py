@@ -100,6 +100,8 @@ PAGES = {
     "Model accuracy": "How the model did on data it never saw",
     "Live market": "Index and stock prices during market hours",
     "Market flow": "Heat map, sector flow and stock volume flow",
+    "Sector intelligence": "Sector rotation, relative strength and momentum",
+    "Breadth and risk": "Advances/declines, participation, liquidity and risk",
     "Weekly analysis": "Weekly moves versus trading costs",
     "Backtesting": "What trading the weekly signal would have done",
     "Monte Carlo": "Range of possible outcomes of that strategy",
@@ -122,6 +124,10 @@ PLAIN = {
                       "average miss is not clearly below the naive guess (open = yesterday's close), it has no edge.",
     "Market flow": "Which sectors and stocks are drawing today's trading, and whether buyers or sellers had "
                    "the upper hand. Box and band sizes are real traded money; the buying/selling split is an estimate.",
+    "Sector intelligence": "Which sectors are beating the NIFTY 50 and which are gaining or losing that edge, from "
+                           "NSE's official sector indices.",
+    "Breadth and risk": "Whether a market move is broad (most stocks join in) or narrow (a few big stocks), and how "
+                        "liquid and volatile each stock has been.",
     "Weekly analysis": "Would buying on Monday's open and selling on Friday's close have beaten the trading costs? "
                        "Bars below the cost line lost money after charges.",
     "Backtesting": "A replay of trading the weekly forecast with every charge paid. A negative result means the "
@@ -146,6 +152,12 @@ elif page == "Live market":
     tab_live.render(preds)
 elif page == "Market flow":
     tab_flow.render()
+elif page == "Sector intelligence":
+    from capstone.ui import tab_sector_intel
+    tab_sector_intel.render()
+elif page == "Breadth and risk":
+    from capstone.ui import tab_breadth
+    tab_breadth.render()
 elif page in ("Weekly analysis", "Backtesting", "Monte Carlo"):
     cfg, chosen = assumptions.render(sorted(preds["symbol"]))
     if page == "Weekly analysis":
