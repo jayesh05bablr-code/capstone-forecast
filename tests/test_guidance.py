@@ -21,8 +21,11 @@ def test_confidence_uses_past_hit_rate_for_same_size_forecasts():
     assert c.bucket == "0.25-0.50%" and c.cases == 200
     assert 60 < c.hit_rate_pct < 80 and c.level in ("High", "Medium")
     assert "times out of 100" in c.sentence
-    # A bucket with no past cases is "Unknown", never a made-up number
-    assert guidance.confidence_for(1.5, table).level == "Unknown"
+    # A bucket with no past cases falls back to all past forecasts, clearly marked approximate
+    far = guidance.confidence_for(1.5, table)
+    assert far.approximate and far.bucket_cases == 0 and "Approximate" in far.sentence
+    # With no usable record at all it stays "Unknown", never a made-up number
+    assert guidance.confidence_for(1.5, table.assign(cases=0)).level == "Unknown"
 
 
 def test_coin_toss_record_is_low_confidence():

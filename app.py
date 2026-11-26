@@ -93,6 +93,8 @@ moves = pd.DataFrame(story["moves"]).set_index("ticker")
 # every click, for every visitor, which is what made the app slow and CPU-throttled.
 # One plain-language line at the top of each analysis page, for readers new to markets.
 PLAIN = {
+    "Trade safely": "For beginners: set your loss limits first, check whether today's numbers beat the costs, "
+                    "practise with virtual money, and see what the app's own past signals did after charges.",
     "Stock details": "The forecast for one stock, what pushed it up or down, and its price history.",
     "Model accuracy": "Every forecast here was made on days the model had not seen. If the trained model's "
                       "average miss is not clearly below the naive guess (open = yesterday's close), it has no edge.",
@@ -141,6 +143,8 @@ ROUTES = {
     "Market terminal": ("Start", "Market terminal", ":material/grid_view:", "terminal",
                         lambda: __import__("capstone.ui.tab_terminal", fromlist=["render"]).render(preds, story)),
     "Today (start here)": ("Start", "Today (beginner's view)", ":material/today:", "today", lambda: home.render(preds, story, moves)),
+    "Trade safely": ("Start", "Should I trade today? (safety)", ":material/shield:", "safety",
+                     lambda: __import__("capstone.ui.tab_safety", fromlist=["render"]).render(preds)),
     "Market overview": ("Start", "Market overview · morning brief", ":material/dashboard:", "overview",
                         lambda: __import__("capstone.ui.tab_overview", fromlist=["render"]).render(preds, story, moves)),
     "How it works": ("Start", "How it works", ":material/schema:", "how-it-works", how_it_works.render),

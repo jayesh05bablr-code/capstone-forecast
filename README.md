@@ -87,6 +87,7 @@ assumptions to verify with a broker.
 
 | Tab | What it shows |
 | --- | --- |
+| Should I trade today? (safety) | For beginners. Your limits (capital, max loss per trade, daily loss limit, stop-loss, max 2-3 trades a day); a per-stock check that says "No trade today" unless the expected move is at least 2x the round-trip cost, the model's record on that size is decent (approximate confidence never counts), the app's own past signals made money after charges and the user has a profitable paper record; share counts sized so a stop-loss loses at most the chosen amount, charges included, no leverage; paper trading with ₹1 lakh of virtual money that fills at the next 09:15 open and exits at the close or stop with full intraday charges (journal saved as CSV); and the honest after-charges record of trading every past signal open-to-close. Logic in `capstone/safety.py` |
 | Morning forecast | Stock selector, predicted gap and opening price, 10th/90th percentile, direction, drivers, model, last update |
 | Model accuracy | MAE, RMSE, bias, directional accuracy; baselines vs Linear Regression vs HistGradientBoosting; significance tests; predicted vs actual; scatter; daily error; rolling MAE and accuracy; stock-wise tables; interval coverage. Filters: stock, dates, models |
 | Weekly analysis | Weekly delta chart per stock with the round-trip cost line (green above, grey below), tradable weeks %, weekly statistics, cost breakdown |
