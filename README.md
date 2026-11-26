@@ -20,6 +20,15 @@ profit-generating system or investment advice.**
 
 Live app: https://pulse8.streamlit.app
 
+
+## Intraday scalping (main page)
+
+The app opens on **Intraday scalping**: long and short setups on 1-, 3- or 5-minute bars with entry, stop-loss,
+target and a size that keeps the loss at the stop (charges included) inside your limit. Every setup is tested
+walk-forward on real minute data with full NSE intraday charges, spread and slippage, and there is a paper
+(virtual money) account for scalps. On the data tested so far **no setup made money after costs**; see
+[SCALPING_RESULTS.md](SCALPING_RESULTS.md). The older opening-range planner is one of the page's views.
+
 ## How it works
 
 [![How the platform works: data sources feed the model, the model feeds the Streamlit app, and code flows from VS Code through GitHub to Streamlit Cloud](docs/pipeline_diagram.png)](docs/pipeline_diagram.png)
