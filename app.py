@@ -93,6 +93,8 @@ moves = pd.DataFrame(story["moves"]).set_index("ticker")
 # every click, for every visitor, which is what made the app slow and CPU-throttled.
 # One plain-language line at the top of each analysis page, for readers new to markets.
 PLAIN = {
+    "Intraday scalping": "Buy or sell short for minutes, not days. Every setup here is tested on real minute data with "
+                         "every charge paid, and the page says plainly when none of them makes money.",
     "Trade safely": "For beginners: set your loss limits first, check whether today's numbers beat the costs, "
                     "practise with virtual money, and see what the app's own past signals did after charges.",
     "Stock details": "The forecast for one stock, what pushed it up or down, and its price history.",
@@ -140,6 +142,8 @@ def _stock_details() -> None:
 
 # key (used by links such as the stock panel's "nav_to") -> (menu section, menu title, icon, url, page body)
 ROUTES = {
+    "Intraday scalping": ("Start", "Intraday scalping (main)", ":material/speed:", "scalping",
+                          lambda: tab_scalping.render(preds)),
     "Market terminal": ("Start", "Market terminal", ":material/grid_view:", "terminal",
                         lambda: __import__("capstone.ui.tab_terminal", fromlist=["render"]).render(preds, story)),
     "Today (start here)": ("Start", "Today (beginner's view)", ":material/today:", "today", lambda: home.render(preds, story, moves)),
@@ -167,8 +171,6 @@ ROUTES = {
     "Breadth and risk": ("Portfolio and risk", "Breadth, liquidity and risk", ":material/stacked_bar_chart:", "risk",
                          _lazy("tab_breadth")),
     "Invest planner": ("Portfolio and risk", "Invest planner", ":material/savings:", "planner", lambda: tab_invest.render(preds)),
-    "Intraday scalping": ("Portfolio and risk", "Intraday scalping", ":material/speed:", "scalping",
-                          lambda: tab_scalping.render(preds)),
     "Ask the market": ("Assistant and data", "AI market assistant", ":material/forum:", "ask", tab_ask.render),
     "Upload company data": ("Assistant and data", "Upload company data", ":material/upload_file:", "upload",
                             lambda: tab_uploads.render(preds, story)),
@@ -185,7 +187,7 @@ def _page(key: str):
             terminal.plain(PLAIN[key])
         body()
     run.__name__ = url.replace("-", "_")
-    return st.Page(run, title=title, icon=icon, url_path=url, default=(key == "Market terminal"))
+    return st.Page(run, title=title, icon=icon, url_path=url, default=(key == "Intraday scalping"))
 
 
 PAGE_OBJS = {k: _page(k) for k in ROUTES}

@@ -20,6 +20,9 @@ from .paths import DATA
 INTRADAY_DIR = DATA / "intraday"
 COLS = ["datetime", "open", "high", "low", "close", "volume"]
 YAHOO_URL = "https://query1.finance.yahoo.com/v8/finance/chart/{}?interval=1m&range={}"
+YAHOO_PERIOD_URL = "https://query1.finance.yahoo.com/v8/finance/chart/{}?interval={}&period1={}&period2={}"
+YAHOO_RANGE_URL = "https://query1.finance.yahoo.com/v8/finance/chart/{}?interval={}&range={}"
+FIVE_DIR = INTRADAY_DIR / "5m"  # 5-minute bars: Yahoo keeps about 60 days of these (vs ~30 of 1-minute)
 # Yahoo turns away the default Python user agent.
 BROWSER = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
                          "(KHTML, like Gecko) Chrome/124.0 Safari/537.36"}
@@ -45,6 +48,28 @@ def fetch_yahoo(symbol: str, days: int = 7) -> pd.DataFrame:
     return parse_yahoo(body)
 
 
+def fetch_yahoo_month(symbol: str, chunks: int = 4) -> pd.DataFrame:
+    """About the last 30 days of 1-minute bars: Yahoo serves them in windows of at most 8 days."""
+    import time as _t
+    ticker = urllib.parse.quote(f"{symbol}.NS")
+    now = int(_t.time())
+    parts = []
+    for k in range(chunks):
+        p2 = now - k * 7 * 86400
+        try:
+            body = get_json(YAHOO_PERIOD_URL.format(ticker, "1m", p2 - 7 * 86400, p2), f"Yahoo {symbol}", BROWSER, retries=1)
+            parts.append(parse_yahoo(body))
+        except ApiError:
+            if k == 0:
+                raise
+    return pd.concat(parts, ignore_index=True).drop_duplicates("datetime") if parts else pd.DataFrame(columns=COLS)
+
+
+def fetch_yahoo_5m(symbol: str) -> pd.DataFrame:
+    ticker = urllib.parse.quote(f"{symbol}.NS")
+    return parse_yahoo(get_json(YAHOO_RANGE_URL.format(ticker, "5m", "60d"), f"Yahoo {symbol} 5m", BROWSER, retries=1))
+
+
 def fetch_twelvedata(symbol: str) -> pd.DataFrame:
     key = os.environ.get("TWELVEDATA_API_KEY")
     if not key:
@@ -64,31 +89,39 @@ def fetch_twelvedata(symbol: str) -> pd.DataFrame:
     return df[COLS]
 
 
-def load(symbol: str) -> pd.DataFrame:
-    path = INTRADAY_DIR / f"{symbol}.csv"
+def load(symbol: str, five: bool = False) -> pd.DataFrame:
+    path = (FIVE_DIR if five else INTRADAY_DIR) / f"{symbol}.csv"
     if not path.exists():
         return pd.DataFrame(columns=COLS)
     return pd.read_csv(path, parse_dates=["datetime"])
 
 
-def save(symbol: str, new: pd.DataFrame) -> pd.DataFrame:
+def save(symbol: str, new: pd.DataFrame, five: bool = False) -> pd.DataFrame:
     new = new.reindex(columns=COLS)
-    old = load(symbol)
+    old = load(symbol, five)
     both = pd.concat([old, new], ignore_index=True) if len(old) else new.copy()
     both["datetime"] = pd.to_datetime(both["datetime"])
     both = both.drop_duplicates("datetime", keep="last").sort_values("datetime")
     # Keep market hours only (Yahoo can add a stray pre-open or post-close bar).
     t = both["datetime"].dt.hour * 60 + both["datetime"].dt.minute
     both = both[(t >= 9 * 60 + 15) & (t < 15 * 60 + 30)]
-    INTRADAY_DIR.mkdir(parents=True, exist_ok=True)
-    both.to_csv(INTRADAY_DIR / f"{symbol}.csv", index=False)
+    folder = FIVE_DIR if five else INTRADAY_DIR
+    folder.mkdir(parents=True, exist_ok=True)
+    both.to_csv(folder / f"{symbol}.csv", index=False)
     return both
 
 
 def update(symbol: str) -> tuple[str, int]:
     """Fetch and store 1-minute candles. Returns (source used or error text, rows now stored)."""
     errors = []
-    for name, fetch in (("Yahoo Finance", fetch_yahoo), ("Twelve Data", fetch_twelvedata)):
+    try:  # 5-minute history for longer backtests; best effort
+        five = fetch_yahoo_5m(symbol)
+        if len(five):
+            save(symbol, five, five=True)
+    except ApiError:
+        pass
+    for name, fetch in (("Yahoo Finance", fetch_yahoo_month), ("Yahoo Finance", fetch_yahoo),
+                        ("Twelve Data", fetch_twelvedata)):
         try:
             df = fetch(symbol)
             if len(df):
