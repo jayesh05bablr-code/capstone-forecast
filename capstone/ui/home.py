@@ -101,7 +101,7 @@ def _cards(preds: pd.DataFrame, table: pd.DataFrame, cost_pct: float, amount: fl
         with cols[i % 3].container(border=True):
             st.markdown(f"### {r['symbol']}")
             st.markdown(f":{TONE_COLOR[adv.tone]}-background[{adv.verdict}] "
-                        f":{CONF_COLOR[conf.level]}[Confidence: {conf.level}]")
+                        f":{CONF_COLOR[conf.level]}[Confidence: {conf.label}]")
             st.metric("Expected open", f"₹{r['pred_open']:,.2f}", f"{r['pred_gap_pct']:+.2f}% vs close "
                       f"₹{r['close']:,.2f}", delta_color="normal" if abs(r["pred_gap_pct"]) >= 0.05 else "off")
             st.caption(f"Likely range ₹{r['pred_open_low']:,.2f} to ₹{r['pred_open_high']:,.2f} (8 in 10 opens). "
@@ -171,5 +171,11 @@ def render(preds: pd.DataFrame, story: dict, moves: pd.DataFrame) -> None:
     cost_pct = guidance.round_trip_cost_pct(COST_TYPES[kind])
     table = _confidence_table(_mtime(MODELS / "oos_predictions.csv"))
     _cards(preds, table, cost_pct, amount)
+    st.info("**Thinking of trading today?** Open **Should I trade today? (safety)** in the menu first. It checks the "
+            "forecast against costs and the app's own after-charges record, sizes the trade from your loss limits, "
+            "and lets you practise with virtual money.")
+    page = st.session_state.get("_pulse8_pages", {}).get("Trade safely")
+    if page is not None:
+        st.page_link(page, label="Open the safety check", icon=":material/shield:")
     _report_card(cost_pct)
     glossary.render(compact=True)

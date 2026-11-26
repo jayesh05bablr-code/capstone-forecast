@@ -60,28 +60,52 @@ class Confidence:
     hit_rate_pct: float  # NaN when unknown
     cases: int
     bucket: str
+    approximate: bool = False  # True when the rate is from ALL past forecasts, not ones of this size
+    bucket_cases: int = 0      # past forecasts of this size (shown when approximate)
+
+    @property
+    def label(self) -> str:
+        """Short label for a card, e.g. "Low (approximate)"."""
+        return f"{self.level} (approximate)" if self.approximate else self.level
 
     @property
     def sentence(self) -> str:
         if self.level == "Unknown":
-            return "Not enough past forecasts of this size to say how reliable it is."
+            return "Not enough past forecasts yet to say how reliable it is."
         right = round(self.hit_rate_pct)
+        if self.approximate:
+            return (f"Approximate: only {self.bucket_cases} past forecasts were of this size ({self.bucket}), too few "
+                    f"to score on their own. Across all {self.cases:,} past forecasts it had not seen in training, "
+                    f"the model got the direction right {right} times out of 100.")
         return (f"When the model expected a move of {self.bucket}, it got the direction right "
                 f"{right} times out of 100 ({self.cases:,} past cases it had not seen in training).")
 
 
+def _level(hit: float) -> str:
+    return "High" if hit >= 65 else "Medium" if hit >= 57 else "Low"
+
+
 def confidence_for(gap_pct: float, table: pd.DataFrame) -> Confidence:
-    """Confidence for one forecast (gap in % points) from confidence_table()."""
+    """Confidence for one forecast (gap in % points) from confidence_table().
+
+    Uses the record of past forecasts of the same size. When there are fewer than MIN_CASES of those,
+    it falls back to the record of all past forecasts and marks the result approximate. Only when
+    even that is too thin is it "Unknown".
+    """
     if table.empty or pd.isna(gap_pct):
         return Confidence("Unknown", float("nan"), 0, "")
     idx = int(np.searchsorted(BUCKETS, abs(gap_pct), side="right") - 1)
     idx = min(max(idx, 0), len(BUCKET_LABELS) - 1)
     row = table.iloc[idx]
     cases, hit = int(row["cases"]), float(row["hit_rate_pct"])
-    if cases < MIN_CASES or np.isnan(hit):
-        return Confidence("Unknown", float("nan"), cases, BUCKET_LABELS[idx])
-    level = "High" if hit >= 65 else "Medium" if hit >= 57 else "Low"
-    return Confidence(level, hit, cases, BUCKET_LABELS[idx])
+    if cases >= MIN_CASES and not np.isnan(hit):
+        return Confidence(_level(hit), hit, cases, BUCKET_LABELS[idx])
+    n = table["cases"].fillna(0).astype(int)
+    total = int(n.sum())
+    if total < MIN_CASES:
+        return Confidence("Unknown", float("nan"), cases, BUCKET_LABELS[idx], bucket_cases=cases)
+    pooled = float((table["hit_rate_pct"].fillna(0) * n).sum() / total)
+    return Confidence(_level(pooled), pooled, total, BUCKET_LABELS[idx], approximate=True, bucket_cases=cases)
 
 
 @dataclass
@@ -99,10 +123,12 @@ def advice(symbol: str, gap_pct: float, pred_open: float, low: float, high: floa
                       f"The expected move ({gap_pct:+.2f}%) is smaller than what a buy-and-sell costs "
                       f"(about {cost_pct:.2f}%). Nothing to act on because of this forecast. If you already "
                       "hold it, there is no reason here to change anything.")
-    if conf.level in ("Low", "Unknown"):
+    if conf.level in ("Low", "Unknown") or conf.approximate:
+        why = ("there are too few past forecasts this size to trust it" if conf.approximate and conf.level != "Low"
+               else "its record on forecasts this size is weak")
         return Advice("Unclear direction", "caution",
-                      f"The model leans {'up' if gap_pct > 0 else 'down'} ({gap_pct:+.2f}%), but its record on "
-                      "forecasts this size is weak. Treat it as noise and let the first 15 minutes of trading "
+                      f"The model leans {'up' if gap_pct > 0 else 'down'} ({gap_pct:+.2f}%), but {why}. "
+                      "Treat it as noise and let the first 15 minutes of trading "
                       "show the direction.")
     if gap_pct > 0:
         return Advice("Likely higher open", "up",
